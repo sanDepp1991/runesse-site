@@ -4,18 +4,20 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "pnpm --filter @runesse/db exec prisma generate && next build --webpack",
+    "build": "pnpm --filter @runesse/db exec prisma generate && prisma generate --schema=../../packages/db/prisma/schema.prisma && next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "pnpm --filter @runesse/db exec prisma generate"
+    "postinstall": "pnpm --filter @runesse/db exec prisma generate && prisma generate --schema=../../packages/db/prisma/schema.prisma"
   },
   "dependencies": {
     "@runesse/db": "workspace:*",
+    "@prisma/client": "5.22.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "next": "16.0.0"
   },
   "devDependencies": {
+    "prisma": "5.22.0",
     "typescript": "^5",
     "@types/node": "^20",
     "@types/react": "^19",
