@@ -6,7 +6,8 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "pnpm --filter @runesse/db exec prisma generate"
   },
   "dependencies": {
     "@runesse/db": "workspace:*",
