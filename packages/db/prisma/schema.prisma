@@ -1,0 +1,141 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("RUNESSE_DATABASE_URL")
+}
+
+enum UserRole {
+  BUYER
+  CARDHOLDER
+  ADMIN
+}
+
+enum RequestStatus {
+  PENDING_ADMIN_APPROVAL
+  APPROVED
+  REJECTED
+  AWAITING_CARDHOLDER_PAYMENT
+  FULFILLED
+  CANCELLED
+}
+
+enum ScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  ERROR
+}
+
+enum TxStatus {
+  AWAITING_CARDHOLDER_PAYMENT
+  AWAITING_ADMIN_VERIFICATION
+  SETTLED
+  CANCELLED
+}
+
+model User {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  name              String?
+  role              UserRole @default(BUYER)
+  trustedDeviceHash String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  buyerRequests    BuyerRequest[]    @relation("BuyerRequestsByUser")
+  cardholderOffers CardholderOffer[]
+  auditLogs        AuditLog[]
+  uploads          ProofUpload[]
+}
+
+model BuyerRequest {
+  id      String @id @default(cuid())
+  buyerId String
+  buyer   User   @relation(fields: [buyerId], references: [id], name: "BuyerRequestsByUser")
+
+  productUrl    String
+  paymentLink   String
+  checkoutPrice Decimal @db.Decimal(12, 2)
+  statedBenefit Decimal @db.Decimal(12, 2)
+  otherCharges  Decimal @default(0) @db.Decimal(12, 2)
+
+  status    RequestStatus @default(PENDING_ADMIN_APPROVAL)
+  createdAt DateTime      @default(now())
+
+  proofs      ProofUpload[]
+  transaction Transaction?
+
+  @@index([buyerId, status])
+}
+
+model CardholderOffer {
+  id           String   @id @default(cuid())
+  cardholderId String
+  cardholder   User     @relation(fields: [cardholderId], references: [id])
+  binPrefix    String?
+  issuer       String?
+  network      String?
+  notes        String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@index([cardholderId, active])
+}
+
+model Transaction {
+  id             String       @id @default(cuid())
+  buyerRequestId String       @unique
+  buyerRequest   BuyerRequest @relation(fields: [buyerRequestId], references: [id])
+  mode           String       @default("manual")
+  amountPayable  Decimal      @db.Decimal(12, 2)
+  status         TxStatus     @default(AWAITING_CARDHOLDER_PAYMENT)
+  paymentRef     String?
+  escrowStatus   String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  proofs    ProofUpload[]
+  auditLogs AuditLog[]
+
+  @@index([status])
+}
+
+model ProofUpload {
+  id         String @id @default(cuid())
+  uploaderId String
+  uploader   User   @relation(fields: [uploaderId], references: [id])
+
+  buyerRequestId String?
+  buyerRequest   BuyerRequest? @relation(fields: [buyerRequestId], references: [id])
+
+  transactionId String?
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+
+  kind       String
+  s3Key      String
+  mimeType   String?
+  sizeBytes  Int?
+  scanStatus ScanStatus @default(PENDING)
+  createdAt  DateTime   @default(now())
+
+  @@index([transactionId])
+  @@index([buyerRequestId])
+}
+
+model AuditLog {
+  id            String       @id @default(cuid())
+  actorId       String?
+  actor         User?        @relation(fields: [actorId], references: [id])
+  action        String
+  target        String?
+  meta          Json?
+  createdAt     DateTime     @default(now())
+  Transaction   Transaction? @relation(fields: [transactionId], references: [id])
+  transactionId String?
+
+  @@index([actorId, createdAt])
+}
