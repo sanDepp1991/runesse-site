@@ -1,25 +1,20 @@
-export const dynamic = "force-dynamic";
+import type { NextConfig } from "next";
 
-import { NextResponse } from "next/server";
-
-export async function GET() {
-  try {
-    // Lazy load Prisma only at runtime
-    const { prisma } = await import("@runesse/db");
-
-    const envLoaded = Boolean(process.env.RUNESSE_DATABASE_URL);
-    const now = await prisma.$queryRaw<{ now: Date }[]>`SELECT NOW()`;
-
-    return NextResponse.json({
-      ok: true,
-      env: envLoaded ? "loaded" : "missing",
-      db: "connected",
-      timestamp: now?.[0]?.now ?? null,
+const nextConfig: NextConfig = {
+  experimental: {
+    serverExternalPackages: ["@prisma/client", "prisma"],
+  },
+  webpack(config) {
+    // Ensure Prisma is included in the bundle
+    config.externals = config.externals?.filter((external) => {
+      if (typeof external === "function") {
+        return !["@prisma/client", "prisma"].includes(external.name);
+      }
+      return true;
     });
-  } catch (e) {
-    return NextResponse.json(
-      { ok: false, error: (e as Error).message },
-      { status: 500 },
-    );
-  }
-}
+
+    return config;
+  },
+};
+
+export default nextConfig;
