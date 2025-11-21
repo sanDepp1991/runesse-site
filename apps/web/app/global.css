@@ -1,0 +1,249 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* TEMPORARY: Tailwind-like utility classes so we can move forward */
+
+:root {
+  color-scheme: dark;
+}
+
+/* Base reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+
+/* Layout helpers */
+.min-h-screen {
+  min-height: 100vh;
+}
+
+.flex {
+  display: flex;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+/* Spacing (only what we need now) */
+.p-4 {
+  padding: 1rem;
+}
+
+.p-6 {
+  padding: 1.5rem;
+}
+
+.px-4 {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.py-4 {
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+
+.py-6 {
+  padding-top: 1.5rem;
+  padding-bottom: 1.5rem;
+}
+
+.py-8 {
+  padding-top: 2rem;
+  padding-bottom: 2rem;
+}
+
+.mx-auto {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.mt-2 {
+  margin-top: 0.5rem;
+}
+
+.mt-4 {
+  margin-top: 1rem;
+}
+
+.mb-1 {
+  margin-bottom: 0.25rem;
+}
+
+.mb-3 {
+  margin-bottom: 0.75rem;
+}
+
+.space-y-3 > * + * {
+  margin-top: 0.75rem;
+}
+
+/* Width & max-width */
+.max-w-5xl {
+  max-width: 64rem;
+}
+
+/* Rounded corners */
+.rounded-xl {
+  border-radius: 0.75rem;
+}
+
+.rounded-2xl {
+  border-radius: 1rem;
+}
+
+/* Borders */
+.border {
+  border-width: 1px;
+  border-style: solid;
+}
+
+.border-dashed {
+  border-style: dashed;
+}
+
+/* Colors (approximate Tailwind palette) */
+.bg-slate-950 {
+  background-color: #020617;
+}
+
+.bg-slate-900 {
+  background-color: #020617;
+}
+
+.bg-slate-900\/40 {
+  background-color: rgba(15, 23, 42, 0.4);
+}
+
+.bg-slate-900\/70 {
+  background-color: rgba(15, 23, 42, 0.7);
+}
+
+.bg-slate-900\/20 {
+  background-color: rgba(15, 23, 42, 0.2);
+}
+
+.bg-slate-950\/40 {
+  background-color: rgba(2, 6, 23, 0.4);
+}
+
+.bg-black {
+  background-color: #000000;
+}
+
+.border-slate-800 {
+  border-color: #1e293b;
+}
+
+.border-slate-700 {
+  border-color: #334155;
+}
+
+.text-slate-50 {
+  color: #f9fafb;
+}
+
+.text-slate-100 {
+  color: #f1f5f9;
+}
+
+.text-slate-300 {
+  color: #cbd5f5;
+}
+
+.text-slate-400 {
+  color: #94a3b8;
+}
+
+.text-slate-500 {
+  color: #64748b;
+}
+
+.text-emerald-200 {
+  color: #a7f3d0;
+}
+
+.text-emerald-400 {
+  color: #34d399;
+}
+
+/* Text sizing & weights */
+.text-xs {
+  font-size: 0.75rem;
+}
+
+.text-sm {
+  font-size: 0.875rem;
+}
+
+.text-xl {
+  font-size: 1.25rem;
+}
+
+.text-2xl {
+  font-size: 1.5rem;
+}
+
+.text-5xl {
+  font-size: 3rem;
+}
+
+.font-semibold {
+  font-weight: 600;
+}
+
+.font-medium {
+  font-weight: 500;
+}
+
+.font-bold {
+  font-weight: 700;
+}
+
+/* Alignment */
+.text-left {
+  text-align: left;
+}
+
+.text-center {
+  text-align: center;
+}
+
+/* Buttons (approx Tailwind style) */
+button {
+  cursor: pointer;
+}
+
+/* Simple shadow for main hero card */
+.shadow-[0_0_40px_rgba(15,23,42,0.8)] {
+  box-shadow: 0 0 40px rgba(15, 23, 42, 0.8);
+}
+
+/* Transition helper */
+.transition {
+  transition: all 150ms ease-out;
+}

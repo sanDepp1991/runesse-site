@@ -1,22 +1,46 @@
-﻿# dependencies
+﻿# Dependencies
 node_modules/
+apps/**/node_modules/
+packages/**/node_modules/
 
 # Next.js build output
 .next/
 out/
+apps/**/.next/
+apps/**/out/
 
-# local env files
+# Env files
 .env
 .env.local
+.env.*.local
 
-# Vercel local metadata
-.vercel/
-
-# logs
+# Logs
 npm-debug.log*
-yarn-debug.log*
 pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# OS junk
+# System files
 .DS_Store
 Thumbs.db
+
+# IDE folders
+.vscode/
+.idea/
+
+# Prisma local DB files
+apps/**/prisma/dev.db
+apps/**/prisma/dev.db-journal
+
+# Supabase local files
+supabase/.branches/
+supabase/.temp/
+supabase/.env
+
+# Build artifacts
+.turbo/
+dist/
+coverage/
+
+# Misc
+*.log

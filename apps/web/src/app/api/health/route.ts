@@ -1,22 +1,13 @@
-export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
+import { prisma } from "@runesse/db";
 
 export async function GET() {
   try {
-    const { prisma } = await import("@runesse/db");
-    const envLoaded = Boolean(process.env.RUNESSE_DATABASE_URL);
-    const now = await prisma.$queryRaw<{ now: Date }[]>`SELECT NOW()`;
-    return NextResponse.json({
-      ok: true,
-      env: envLoaded ? "loaded" : "missing",
-      db: "connected",
-      timestamp: now?.[0]?.now ?? null,
-    });
-  } catch (e) {
-    return NextResponse.json(
-      { ok: false, error: (e as Error).message },
-      { status: 500 },
-    );
+    const [{ now }] = await prisma.$queryRawUnsafe<{ now: string }[]>("SELECT NOW()");
+    return Response.json({ ok: true, db: "connected", timestamp: now });
+  } catch (err) {
+    console.error("DB connection error:", err);
+    return Response.json({ ok: false, error: String(err) }, { status: 500 });
   }
 }

@@ -1,0 +1,190 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("RUNESSE_DATABASE_URL")
+}
+
+model AuditLog {
+  id            String       @id
+  actorId       String?
+  action        String
+  target        String?
+  meta          Json?
+  createdAt     DateTime     @default(now())
+  transactionId String?
+  User          User?        @relation(fields: [actorId], references: [id])
+  Transaction   Transaction? @relation(fields: [transactionId], references: [id])
+
+  @@index([actorId, createdAt])
+}
+
+model BuyerRequest {
+  id            String        @id
+  buyerId       String
+  productUrl    String
+  paymentLink   String
+  checkoutPrice Decimal       @db.Decimal(12, 2)
+  statedBenefit Decimal       @db.Decimal(12, 2)
+  otherCharges  Decimal       @default(0) @db.Decimal(12, 2)
+  status        RequestStatus @default(PENDING_ADMIN_APPROVAL)
+  createdAt     DateTime      @default(now())
+
+  User          User          @relation(fields: [buyerId], references: [id])
+  ProofUpload   ProofUpload[]
+  Transaction   Transaction?
+
+  @@index([buyerId, status])
+}
+
+model CardholderOffer {
+  id           String   @id
+  cardholderId String
+  binPrefix    String?
+  issuer       String?
+  network      String?
+  notes        String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  User         User     @relation(fields: [cardholderId], references: [id])
+
+  @@index([cardholderId, active])
+}
+
+model ProofUpload {
+  id             String        @id
+  uploaderId     String
+  buyerRequestId String?
+  transactionId  String?
+  kind           String
+  s3Key          String
+  mimeType       String?
+  sizeBytes      Int?
+  scanStatus     ScanStatus    @default(PENDING)
+  createdAt      DateTime      @default(now())
+
+  BuyerRequest   BuyerRequest? @relation(fields: [buyerRequestId], references: [id])
+  Transaction    Transaction?  @relation(fields: [transactionId], references: [id])
+  User           User          @relation(fields: [uploaderId], references: [id])
+
+  @@index([buyerRequestId])
+  @@index([transactionId])
+}
+
+model Transaction {
+  id             String        @id
+  buyerRequestId String        @unique
+  mode           String        @default("manual")
+  amountPayable  Decimal       @db.Decimal(12, 2)
+  status         TxStatus      @default(AWAITING_CARDHOLDER_PAYMENT)
+  paymentRef     String?
+  escrowStatus   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime
+
+  AuditLog       AuditLog[]
+  ProofUpload    ProofUpload[]
+  BuyerRequest   BuyerRequest  @relation(fields: [buyerRequestId], references: [id])
+
+  @@index([status])
+}
+
+enum RequestStatus {
+  PENDING_ADMIN_APPROVAL
+  APPROVED
+  REJECTED
+  AWAITING_CARDHOLDER_PAYMENT
+  FULFILLED
+  CANCELLED
+}
+
+enum ScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  ERROR
+}
+
+enum TxStatus {
+  AWAITING_CARDHOLDER_PAYMENT
+  AWAITING_ADMIN_VERIFICATION
+  SETTLED
+  CANCELLED
+}
+
+enum UserRole {
+  BUYER
+  CARDHOLDER
+  BOTH
+}
+
+model User {
+  id                String            @id @default(uuid())
+  email             String            @unique
+  name              String?
+  role              UserRole          @default(BUYER)
+  trustedDeviceHash String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  AuditLog        AuditLog[]
+  BuyerRequest    BuyerRequest[]
+  CardholderOffer CardholderOffer[]
+  ProofUpload     ProofUpload[]
+
+  profile         UserProfile?
+}
+
+model UserProfile {
+  id          String    @id @default(uuid())
+  user        User      @relation(fields: [userId], references: [id])
+  userId      String    @unique
+
+  fullName    String
+  phoneNumber String
+  role        UserRole
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+// --- Runesse: Simple buyer requests (Phase 0) ---
+
+model Request {
+  id                     String            @id @default(cuid())
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  buyerCheckoutScreenshotUrl String? @db.Text
+  buyerProductScreenshotUrl  String? @db.Text
+  cardholderInvoiceUrl   String? @db.Text
+  cardholderCardProofUrl String? @db.Text
+
+  // buyer
+  buyerEmail             String
+
+  // product info
+  productLink            String
+  productName            String?
+  checkoutPrice          Int?
+  notes                  String?
+
+  // workflow status
+  status                 NewRequestStatus  @default(PENDING)
+
+  // ---- NEW FIELDS ----
+  matchedCardholderEmail String?           @db.VarChar(255)
+  matchedAt              DateTime?
+
+  @@index([buyerEmail, status])
+}
+
+enum NewRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  MATCHED    // <-- NEW state (clean and logical)
+  COMPLETED
+}
