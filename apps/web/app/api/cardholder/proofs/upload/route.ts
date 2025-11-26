@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@runesse/db";
 import { supabaseServerClient } from "../../../../../lib/supabaseServer";
+import {
+  LedgerScope,
+  LedgerEventType,
+  UserRole,
+} from "@prisma/client";
+import { randomUUID } from "crypto";
+import { recordLedgerEntry } from "@runesse/db/src/ledger";
 
 // (Optional but safe in Next App Router uploads)
 export const runtime = "nodejs";
@@ -66,8 +73,10 @@ export async function POST(req: NextRequest) {
         ? "cardholder-card-proof"
         : (incomingType as AllowedType);
 
-    if (!ALLOWED_TYPES.includes(incomingType as AllowedType) &&
-        !ALLOWED_TYPES.includes(normalizedType)) {
+    if (
+      !ALLOWED_TYPES.includes(incomingType as AllowedType) &&
+      !ALLOWED_TYPES.includes(normalizedType)
+    ) {
       return NextResponse.json(
         {
           ok: false,
@@ -79,7 +88,11 @@ export async function POST(req: NextRequest) {
 
     const existing = await prisma.request.findUnique({
       where: { id: requestId },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        status: true,
+        matchedCardholderEmail: true,
+      },
     });
 
     if (!existing) {
@@ -101,6 +114,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 🔹 Try to use real matchedCardholderEmail, but don't block if it's missing
+    const cardholderEmail =
+      existing.matchedCardholderEmail || "cardholder+fallback@demo.runesse";
+
     const file = fileRaw;
     const originalName = file.name || "upload";
     const ext = originalName.includes(".")
@@ -114,6 +131,7 @@ export async function POST(req: NextRequest) {
     const bucket = "runesse-proofs";
     const path = `requests/${requestId}/${normalizedType}-${timestamp}.${safeExt}`;
 
+    // 1) Upload file to Supabase storage
     const { error: uploadError } = await supabaseServerClient.storage
       .from(bucket)
       .upload(path, file, {
@@ -142,15 +160,76 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Map to DB fields (use normalized type)
+    // Map to DB fields (use normalized type) – this is the "latest" URL on Request
     const field =
       normalizedType === "cardholder-invoice"
         ? ("cardholderInvoiceUrl" as const)
         : ("cardholderCardProofUrl" as const);
 
-    const updated = await prisma.request.update({
-      where: { id: requestId },
-      data: { [field]: publicUrl },
+    // 2) DB: create ProofUpload row + update Request + write LedgerEntry in ONE transaction
+    const updated = await prisma.$transaction(async (tx) => {
+      // 2a) Ensure cardholder user exists
+      let cardholder = await tx.user.findUnique({
+        where: { email: cardholderEmail },
+      });
+
+      if (!cardholder) {
+        cardholder = await tx.user.create({
+          data: {
+            email: cardholderEmail,
+            name: "Cardholder",
+            role: UserRole.CARDHOLDER,
+          },
+        });
+      }
+
+      // 2b) Create ProofUpload row
+const proof = await tx.proofUpload.create({
+  data: {
+    id: randomUUID(),
+    uploaderId: cardholder.id,
+    // For cardholder proofs in Phase-1 we don't link to BuyerRequest yet
+    buyerRequestId: null,
+    transactionId: null,
+    kind: normalizedType,
+    s3Key: path,
+    mimeType: file.type || null,
+    sizeBytes: typeof file.size === "number" ? file.size : null,
+    // scanStatus uses default PENDING
+  },
+});
+
+      // 2c) Update Request with latest URL
+      const updatedRequest = await tx.request.update({
+        where: { id: requestId },
+        data: { [field]: publicUrl },
+      });
+
+      // 2d) Ledger entry for this proof upload
+      await recordLedgerEntry(tx, {
+        scope: LedgerScope.USER_TRANSACTION,
+        eventType: LedgerEventType.CARDHOLDER_PROOF_UPLOADED,
+        referenceType: "PROOF_UPLOAD",
+        referenceId: proof.id,
+        buyerId: null,
+        cardholderId: cardholder.id,
+        accountKey: `USER:${cardholder.id}`,
+        description:
+          normalizedType === "cardholder-invoice"
+            ? "Cardholder uploaded invoice"
+            : "Cardholder uploaded card proof",
+        meta: {
+          requestId: updatedRequest.id,
+          proofId: proof.id,
+          field,
+          publicUrl,
+          storagePath: path,
+          matchedCardholderEmail: existing.matchedCardholderEmail,
+          usedFallbackEmail: !existing.matchedCardholderEmail,
+        },
+      });
+
+      return updatedRequest;
     });
 
     return NextResponse.json(

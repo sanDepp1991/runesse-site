@@ -1,121 +1,138 @@
+// apps/db/src/ledger.ts
+
 import {
   Prisma,
-  LedgerEventType,
   LedgerScope,
+  LedgerEventType,
   LedgerSide,
 } from "@prisma/client";
 
 /**
- * We often want to call this helper with either:
- * - the main PrismaClient instance, or
- * - a Prisma.TransactionClient inside a transaction.
+ * Shape of data we accept for a generic ledger entry.
+ *
+ * Most fields are optional so we can use the same helper
+ * for both operational events and real money movements later.
  */
-export type PrismaClientOrTx =
-  | Prisma.TransactionClient
-  | Prisma.DefaultPrismaClient;
-
-/**
- * Convenience type for what we can pass into recordLedgerEntry.
- * Amount is optional (for pure operational events).
- */
-export interface CreateLedgerEntryInput {
+export interface RecordLedgerEntryArgs {
+  // Required
+  scope: LedgerScope;
   eventType: LedgerEventType;
 
-  // Optional classification, defaults to USER_TRANSACTION
-  scope?: LedgerScope;
+  // Optional financial side
+  side?: LedgerSide | null;
+  amount?: Prisma.Decimal | number | null;
+  currency?: string | null;
 
-  // Financial info (optional for non-money events)
-  side?: LedgerSide;
-  amount?: Prisma.Decimal | number | string;
-  currency?: string; // defaults to "INR" if amount is present
+  // Generic account key: e.g. "PLATFORM_MAIN", "USER:<id>", "TX:<id>"
+  accountKey?: string | null;
 
-  // Entity linkage
-  referenceType?: string; // e.g. "BUYER_REQUEST", "TRANSACTION", "WALLET"
-  referenceId?: string;   // the id of that entity
+  // Business references
+  referenceId?: string | null; // e.g. buyerRequestId, transactionId, walletId
+  referenceType?: string | null; // e.g. "BUYER_REQUEST", "TRANSACTION", "WALLET"
 
-  // Actor info
-  buyerId?: string;
-  cardholderId?: string;
-  adminId?: string;
+  // Actors
+  buyerId?: string | null;
+  cardholderId?: string | null;
+  adminId?: string | null; // who performed/approved the action (if applicable)
 
-  // Optional accountKey override
-  // e.g. "TX:txId", "USER:buyerId", "PLATFORM_MAIN"
-  accountKey?: string;
-
-  // Extra info
-  description?: string;
-  meta?: Prisma.InputJsonValue;
+  // Description + extra JSON
+  description?: string | null;
+  meta?: Record<string, any> | null;
 }
 
 /**
- * Internal helper to compute a sensible default accountKey if caller didn't
- * provide one.
- */
-function inferAccountKey(input: CreateLedgerEntryInput): string {
-  if (input.accountKey) {
-    return input.accountKey;
-  }
-
-  if (input.referenceType && input.referenceId) {
-    return `${input.referenceType}:${input.referenceId}`;
-  }
-
-  if (input.buyerId) {
-    return `USER:${input.buyerId}`;
-  }
-
-  if (input.cardholderId) {
-    return `USER:${input.cardholderId}`;
-  }
-
-  // Platform-level catch-all
-  return "PLATFORM_MAIN";
-}
-
-/**
- * Main helper to record a ledger entry.
+ * Shared low-level helper for writing a LedgerEntry row.
  *
- * Usage:
- *   await recordLedgerEntry(prisma, {
- *     eventType: "REQUEST_CREATED",
- *     referenceType: "BUYER_REQUEST",
- *     referenceId: request.id,
- *     buyerId: request.buyerId,
- *     description: "Buyer created a new request",
- *   });
+ * Always call this **inside** a prisma.$transaction(async (tx) => { ... })
+ * and pass the transaction client as `tx`.
  */
 export async function recordLedgerEntry(
-  prisma: PrismaClientOrTx,
-  input: CreateLedgerEntryInput
+  tx: Prisma.TransactionClient,
+  args: RecordLedgerEntryArgs
 ) {
-  const scope = input.scope ?? LedgerScope.USER_TRANSACTION;
-  const accountKey = inferAccountKey(input);
+  const {
+    scope,
+    eventType,
+    side,
+    amount,
+    currency,
+    accountKey,
+    referenceId,
+    referenceType,
+    buyerId,
+    cardholderId,
+    adminId,
+    description,
+    meta,
+  } = args;
 
-  // If amount is provided but no currency, default to INR
-  const currency =
-    input.currency ?? (input.amount != null ? "INR" : undefined);
+  // Normalise amount to Prisma.Decimal if needed
+  let amountValue: Prisma.Decimal | null = null;
+  if (amount !== undefined && amount !== null) {
+    amountValue =
+      amount instanceof Prisma.Decimal ? amount : new Prisma.Decimal(amount);
+  }
 
-  return prisma.ledgerEntry.create({
+  await tx.ledgerEntry.create({
     data: {
       scope,
-      eventType: input.eventType,
-      side: input.side ?? null,
-      amount:
-        input.amount !== undefined && input.amount !== null
-          ? (input.amount as any)
-          : null,
-      currency: currency ?? null,
-      accountKey,
+      eventType,
+      side: side ?? null,
+      amount: amountValue,
+      currency: currency ?? "INR",
+      accountKey: accountKey ?? null,
+      referenceId: referenceId ?? null,
+      referenceType: referenceType ?? null,
+      buyerId: buyerId ?? null,
+      cardholderId: cardholderId ?? null,
+      adminId: adminId ?? null,
+      description: description ?? null,
+      meta: meta ?? undefined, // Prisma will store as Json
+    },
+  });
+}
 
-      referenceType: input.referenceType ?? null,
-      referenceId: input.referenceId ?? null,
+/**
+ * Convenience helper: log when a cardholder uploads proof
+ * (invoice + card proof etc.) for a given BuyerRequest.
+ *
+ * Use this from the proof-upload API inside a transaction:
+ *
+ *   await recordCardholderProofUploaded(tx, { ... });
+ */
+export async function recordCardholderProofUploaded(
+  tx: Prisma.TransactionClient,
+  args: {
+    buyerRequestId: string;
+    cardholderId: string;
+    proofUploadId: string;
+    adminId?: string | null; // optional, for later manual verification
+  }
+) {
+  const { buyerRequestId, cardholderId, proofUploadId, adminId } = args;
 
-      buyerId: input.buyerId ?? null,
-      cardholderId: input.cardholderId ?? null,
-      adminId: input.adminId ?? null,
+  await recordLedgerEntry(tx, {
+    scope: LedgerScope.USER_TRANSACTION,
+    eventType: LedgerEventType.CARDHOLDER_PROOF_UPLOADED,
 
-      description: input.description ?? null,
-      meta: input.meta ?? undefined,
+    referenceType: "PROOF_UPLOAD",
+    referenceId: proofUploadId,
+
+    buyerId: null,
+    cardholderId,
+    adminId: adminId ?? null,
+
+    // No money movement yet in Phase-1 (manual payments)
+    side: null,
+    amount: null,
+    currency: "INR",
+
+    accountKey: `USER:${cardholderId}`,
+
+    description: "Cardholder uploaded proof for buyer request",
+    meta: {
+      buyerRequestId,
+      proofUploadId,
     },
   });
 }
