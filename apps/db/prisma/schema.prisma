@@ -128,6 +128,7 @@ model LedgerEntry {
   @@index([buyerId])
   @@index([cardholderId])
   @@index([accountKey, createdAt])
+  @@index([adminId])
 }
 
 enum RequestStatus {
@@ -168,31 +169,63 @@ enum LedgerSide {
 }
 
 enum LedgerEventType {
-  // Request lifecycle
+  // ---------------------------------------
+  // REQUEST LIFECYCLE (Buyer + System)
+  // ---------------------------------------
   REQUEST_CREATED
   REQUEST_UPDATED
   REQUEST_CANCELLED
 
-  // Matching & acceptance
+  // NEW: Status transitions (generic + system)
+  STATUS_CHANGED
+  SYSTEM_AUTO_EXPIRED
+
+  // ---------------------------------------
+  // CARDHOLDER MATCHING & ACCEPTANCE
+  // ---------------------------------------
   CARD_SELECTED_FOR_PAYMENT
   CARDHOLDER_ACCEPTED
   CARDHOLDER_REJECTED
 
-  // Proof & verification
+  // ---------------------------------------
+  // PROOFS & VERIFICATION
+  // ---------------------------------------
   BUYER_PROOF_UPLOADED
   CARDHOLDER_PROOF_UPLOADED
   ADMIN_VERIFICATION_PASSED
   ADMIN_VERIFICATION_FAILED
 
-  // Settlement / money flow (Phase-1 = manual, Phase-2 = escrow)
+  // NEW: Admin explicit actions
+  ADMIN_VIEWED_REQUEST
+  ADMIN_APPROVED_REQUEST
+  ADMIN_REJECTED_REQUEST
+  ADMIN_MARKED_COMPLETED
+
+  // ---------------------------------------
+  // FINANCIAL FLOW — PHASE-1 (Manual)
+  // ---------------------------------------
   MANUAL_REIMBURSEMENT_INITIATED
   MANUAL_REIMBURSEMENT_COMPLETED
+
+  // ---------------------------------------
+  // FINANCIAL FLOW — PHASE-2 (Escrow)
+  // ---------------------------------------
   ESCROW_FUNDS_HELD
   ESCROW_FUNDS_RELEASED
   ESCROW_REFUND_INITIATED
   ESCROW_REFUND_COMPLETED
 
-  // Fees & adjustments
+  // NEW: Buyer deposit (Phase-2 Razorpay)
+  BUYER_DEPOSIT_CREATED
+  BUYER_DEPOSIT_CONFIRMED
+
+  // NEW: Cardholder reimbursement (Phase-2 Razorpay)
+  CARDHOLDER_REIMBURSEMENT_INITIATED
+  CARDHOLDER_REIMBURSEMENT_COMPLETED
+
+  // ---------------------------------------
+  // COMMISSION & ADJUSTMENTS
+  // ---------------------------------------
   RUNESSE_COMMISSION_ACCRUED
   RUNESSE_COMMISSION_SETTLED
   ADJUSTMENT

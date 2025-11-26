@@ -232,9 +232,9 @@ function AdminProofsSection({ request }: { request: any }) {
           </p>
           <p className="mt-1 text-[11px] text-neutral-500 max-w-xl">
             Review these screenshots and documents before marking the trade as{" "}
-            <span className="font-medium text-neutral-300">COMPLETED</span>.
-            This is still Phase-1 – payments happen outside Runesse, but proofs
-            are stored here as an audit trail.
+            <span className="font-medium text-neutral-300">COMPLETED</span>. This
+            is still Phase-1 – payments happen outside Runesse, but proofs are
+            stored here as an audit trail.
           </p>
         </div>
 
@@ -287,6 +287,125 @@ function AdminProofsSection({ request }: { request: any }) {
   );
 }
 
+/* ---------------- Ledger timeline (right column) ---------------- */
+
+type LedgerItem = {
+  id: string;
+  createdAt: string;
+  eventType: string;
+  description: string | null;
+};
+
+function formatLedgerLabel(eventType: string): string {
+  switch (eventType) {
+    case "BUYER_PROOF_UPLOADED":
+      return "Buyer proof uploaded";
+    case "CARDHOLDER_PROOF_UPLOADED":
+      return "Cardholder proof uploaded";
+    case "ADMIN_MARKED_COMPLETED":
+      return "Admin marked request as completed";
+    case "ADMIN_REJECTED_REQUEST":
+      return "Admin cancelled request";
+    default:
+      return eventType;
+  }
+}
+
+function LedgerTimeline({ requestId }: { requestId: string }) {
+  const [items, setItems] = React.useState<LedgerItem[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await fetch(`/api/admin/requests/${requestId}/ledger`, {
+          cache: "no-store",
+        });
+        const json = await res.json();
+
+        if (!res.ok || !json.ok) {
+          throw new Error(json.error || "Failed to load ledger");
+        }
+
+        if (!cancelled) {
+          setItems(json.items || []);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : "Failed to load ledger"
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    if (requestId) {
+      load();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [requestId]);
+
+  if (loading) {
+    return (
+      <div className="text-xs text-neutral-400">Loading timeline…</div>
+    );
+  }
+
+  if (error) {
+    return <div className="text-xs text-red-400">{error}</div>;
+  }
+
+  if (!items.length) {
+    return (
+      <div className="text-xs text-neutral-500">
+        No ledger events yet for this request.
+      </div>
+    );
+  }
+
+  return (
+    <ol className="mt-3 space-y-2 border-l border-neutral-800 pl-4">
+      {items.map((item) => (
+        <li key={item.id} className="relative">
+          <span className="absolute -left-2 top-1 h-3 w-3 rounded-full bg-emerald-500/80" />
+          <div className="text-xs text-neutral-400">
+            {new Date(item.createdAt).toLocaleString("en-IN", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </div>
+          <div className="text-sm text-neutral-100 font-medium">
+            {formatLedgerLabel(item.eventType)}
+          </div>
+          {item.description && (
+            <div className="text-xs text-neutral-400">
+              {item.description}
+            </div>
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/* ---------------- Main page ---------------- */
+
 const AdminRequestDetailsPage: NextPage = () => {
   const params = useParams() as Record<string, string | string[]>;
   const pathname = usePathname();
@@ -305,6 +424,7 @@ const AdminRequestDetailsPage: NextPage = () => {
   const [item, setItem] = React.useState<any | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [completing, setCompleting] = React.useState(false);
+  const [cancelling, setCancelling] = React.useState(false);
 
   React.useEffect(() => {
     if (!id || typeof id !== "string") {
@@ -352,7 +472,7 @@ const AdminRequestDetailsPage: NextPage = () => {
 
   async function handleMarkCompleted() {
     if (!request) return;
-    if (status === "COMPLETED") return;
+    if (status === "COMPLETED" || status === "CANCELLED") return;
 
     setCompleting(true);
     try {
@@ -389,6 +509,45 @@ const AdminRequestDetailsPage: NextPage = () => {
       alert("Something went wrong. Please try again.");
     } finally {
       setCompleting(false);
+    }
+  }
+
+  async function handleCancelRequest() {
+    if (!request) return;
+    if (status === "COMPLETED" || status === "CANCELLED") return;
+
+    const confirmed = window.confirm(
+      "Are you sure you want to cancel this request?"
+    );
+    if (!confirmed) return;
+
+    setCancelling(true);
+    try {
+      const res = await fetch("/api/admin/requests/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requestId: request.id,
+          newStatus: "CANCELLED",
+        }),
+      });
+
+      const data = await res
+        .json()
+        .catch(() => null as unknown as { ok: boolean; error?: string });
+
+      if (!res.ok || !data?.ok) {
+        alert(data?.error || "Failed to cancel request");
+        return;
+      }
+
+      setItem(data.request);
+      alert("🚫 Request has been cancelled.");
+    } catch (err) {
+      console.error("Failed to cancel request", err);
+      alert("Something went wrong while cancelling the request.");
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -607,40 +766,65 @@ const AdminRequestDetailsPage: NextPage = () => {
             </div>
 
             {/* Admin actions */}
-            <div className="rounded-2xl border border-emerald-700/60 bg-emerald-950/40 p-4 sm:p-5 space-y-2">
+            <div className="rounded-2xl border border-emerald-700/60 bg-emerald-950/40 p-4 sm:p-5 space-y-3">
               <p className="text-xs font-medium text-emerald-200">
                 Admin actions
               </p>
               <p className="text-[11px] text-emerald-200/85">
                 Once you are satisfied with the buyer & cardholder proofs, mark
-                this request as <span className="font-semibold">COMPLETED</span>
-                . This will update both dashboards.
+                this request as <span className="font-semibold">COMPLETED</span>{" "}
+                or cancel it if the trade will not go ahead. These actions
+                update both dashboards.
               </p>
 
-              <button
-                type="button"
-                onClick={handleMarkCompleted}
-                disabled={completing || status === "COMPLETED"}
-                className="mt-1 w-full rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-200 px-4 py-2 text-sm font-medium hover:bg-emerald-500/20 disabled:opacity-60 disabled:cursor-not-allowed transition"
-              >
-                {status === "COMPLETED"
-                  ? "Already completed"
-                  : completing
-                  ? "Marking as completed…"
-                  : "Mark as completed"}
-              </button>
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={handleMarkCompleted}
+                  disabled={
+                    completing ||
+                    status === "COMPLETED" ||
+                    status === "CANCELLED"
+                  }
+                  className="w-full rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-200 px-4 py-2 text-sm font-medium hover:bg-emerald-500/20 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                >
+                  {status === "COMPLETED"
+                    ? "Already completed"
+                    : completing
+                    ? "Marking as completed…"
+                    : "Mark as completed"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCancelRequest}
+                  disabled={
+                    cancelling ||
+                    status === "COMPLETED" ||
+                    status === "CANCELLED"
+                  }
+                  className="w-full rounded-xl border border-red-500/60 bg-red-950/40 text-red-200 px-4 py-2 text-sm font-medium hover:bg-red-900/60 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                >
+                  {status === "CANCELLED"
+                    ? "Already cancelled"
+                    : cancelling
+                    ? "Cancelling…"
+                    : "Cancel request"}
+                </button>
+              </div>
             </div>
 
-            {/* Audit trail placeholder */}
-            <div className="rounded-2xl border border-dashed border-neutral-800 bg-neutral-950/40 p-4 sm:p-5">
+            {/* Audit trail – now powered by ledger */}
+            <div className="rounded-2xl border border-neutral-800 bg-neutral-950/40 p-4 sm:p-5">
               <p className="text-xs font-medium text-neutral-400 mb-1">
-                Audit trail (coming soon)
+                Audit trail
               </p>
               <p className="mt-1 text-[11px] text-neutral-500">
-                Later, this block will record who approved the request, when it
-                was completed, hashes of proofs, and payment provider
-                references. For now, we&apos;re only tracking status changes.
+                Key events for this request: uploads and status changes from
+                buyer, cardholder, and admin.
               </p>
+
+              <LedgerTimeline requestId={request.id as string} />
             </div>
           </div>
         </div>
