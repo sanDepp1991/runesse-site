@@ -21,8 +21,8 @@ export default function NewRequestPage() {
     const checkoutPrice = String(formData.get("checkoutPrice") || "").trim();
     const notes = String(formData.get("notes") || "").trim();
 
-    // TODO: Replace with session email once auth is complete
-    const buyerEmail = "demo-buyer@runesse.local";
+    // TODO: Replace with real logged-in user email once auth is ready
+    const buyerEmail = "your-email@example.com";
 
     try {
       const res = await fetch("/api/requests", {
@@ -42,7 +42,9 @@ export default function NewRequestPage() {
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(
-          data?.error || "Something went wrong while creating the request."
+          data?.message ||
+            data?.error ||
+            "Something went wrong while creating the request."
         );
         setIsSubmitting(false);
         return;
@@ -59,7 +61,6 @@ export default function NewRequestPage() {
 
   return (
     <div className="min-h-screen">
-
       <div className="mx-auto max-w-3xl px-4 py-8">
         {/* Breadcrumb + back */}
         <div className="mb-6 flex items-center justify-between">

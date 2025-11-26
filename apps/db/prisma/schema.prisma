@@ -22,7 +22,7 @@ model AuditLog {
 }
 
 model BuyerRequest {
-  id            String        @id
+  id            String        @id @default(cuid())
   buyerId       String
   productUrl    String
   paymentLink   String
@@ -92,6 +92,44 @@ model Transaction {
   @@index([status])
 }
 
+// ---------- LEDGER MODEL ----------
+
+model LedgerEntry {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Classification
+  scope     LedgerScope
+  eventType LedgerEventType
+
+  // Financial direction from the perspective of the "accountKey" below.
+  // For purely operational events, side and amount can be null.
+  side      LedgerSide?
+  amount    Decimal?  @db.Decimal(18, 2)
+  currency  String?   @default("INR")
+
+  // Generic account key: e.g. "PLATFORM_MAIN", "USER:buyerId", "TX:transactionId"
+  accountKey String?
+
+  // Linking to business entities (kept generic so we don't break schema)
+  referenceId   String? // e.g. buyerRequestId, transactionId, walletId
+  referenceType String? // e.g. "BUYER_REQUEST", "TRANSACTION", "WALLET"
+
+  buyerId      String?
+  cardholderId String?
+  adminId      String? // who performed/approved the action (if applicable)
+
+  description String?
+  meta        Json?
+
+  @@index([scope, createdAt])
+  @@index([referenceType, referenceId])
+  @@index([buyerId])
+  @@index([cardholderId])
+  @@index([accountKey, createdAt])
+}
+
 enum RequestStatus {
   PENDING_ADMIN_APPROVAL
   APPROVED
@@ -113,6 +151,52 @@ enum TxStatus {
   AWAITING_ADMIN_VERIFICATION
   SETTLED
   CANCELLED
+}
+
+// ---------- LEDGER ENUMS ----------
+
+enum LedgerScope {
+  PLATFORM         // global platform-level events
+  USER_TRANSACTION // buyer/cardholder transaction-level events
+  WALLET           // wallet or balance movements (future)
+  ESCROW           // escrow movements (future Razorpay)
+}
+
+enum LedgerSide {
+  DEBIT
+  CREDIT
+}
+
+enum LedgerEventType {
+  // Request lifecycle
+  REQUEST_CREATED
+  REQUEST_UPDATED
+  REQUEST_CANCELLED
+
+  // Matching & acceptance
+  CARD_SELECTED_FOR_PAYMENT
+  CARDHOLDER_ACCEPTED
+  CARDHOLDER_REJECTED
+
+  // Proof & verification
+  BUYER_PROOF_UPLOADED
+  CARDHOLDER_PROOF_UPLOADED
+  ADMIN_VERIFICATION_PASSED
+  ADMIN_VERIFICATION_FAILED
+
+  // Settlement / money flow (Phase-1 = manual, Phase-2 = escrow)
+  MANUAL_REIMBURSEMENT_INITIATED
+  MANUAL_REIMBURSEMENT_COMPLETED
+  ESCROW_FUNDS_HELD
+  ESCROW_FUNDS_RELEASED
+  ESCROW_REFUND_INITIATED
+  ESCROW_REFUND_COMPLETED
+
+  // Fees & adjustments
+  RUNESSE_COMMISSION_ACCRUED
+  RUNESSE_COMMISSION_SETTLED
+  ADJUSTMENT
+  NOTE
 }
 
 enum UserRole {
@@ -150,32 +234,33 @@ model UserProfile {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 }
+
 // --- Runesse: Simple buyer requests (Phase 0) ---
 
 model Request {
-  id                     String            @id @default(cuid())
-  createdAt              DateTime          @default(now())
-  updatedAt              DateTime          @updatedAt
-  buyerCheckoutScreenshotUrl String? @db.Text
-  buyerProductScreenshotUrl  String? @db.Text
-  cardholderInvoiceUrl   String? @db.Text
-  cardholderCardProofUrl String? @db.Text
+  id                          String           @id @default(cuid())
+  createdAt                   DateTime         @default(now())
+  updatedAt                   DateTime         @updatedAt
+  buyerCheckoutScreenshotUrl  String?          @db.Text
+  buyerProductScreenshotUrl   String?          @db.Text
+  cardholderInvoiceUrl        String?          @db.Text
+  cardholderCardProofUrl      String?          @db.Text
 
   // buyer
-  buyerEmail             String
+  buyerEmail                  String
 
   // product info
-  productLink            String
-  productName            String?
-  checkoutPrice          Int?
-  notes                  String?
+  productLink                 String
+  productName                 String?
+  checkoutPrice               Int?
+  notes                       String?
 
   // workflow status
-  status                 NewRequestStatus  @default(PENDING)
+  status                      NewRequestStatus @default(PENDING)
 
   // ---- NEW FIELDS ----
-  matchedCardholderEmail String?           @db.VarChar(255)
-  matchedAt              DateTime?
+  matchedCardholderEmail      String?          @db.VarChar(255)
+  matchedAt                   DateTime?
 
   @@index([buyerEmail, status])
 }
@@ -185,6 +270,6 @@ enum NewRequestStatus {
   APPROVED
   REJECTED
   CANCELLED
-  MATCHED    // <-- NEW state (clean and logical)
+  MATCHED
   COMPLETED
 }

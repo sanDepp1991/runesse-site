@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 
 const LandingPage: React.FC = () => {
   const [showStoryOverlay, setShowStoryOverlay] = React.useState(false);
@@ -103,15 +104,27 @@ const LandingPage: React.FC = () => {
     <div className="min-h-screen bg-black text-white flex flex-col">
       {/* Top bar */}
       <header className="w-full flex items-center justify-between px-6 md:px-16 py-4">
-        <div className="text-xl font-semibold tracking-widest">
-          RUNESSE
-        </div>
+        <div className="text-xl font-semibold tracking-widest">RUNESSE</div>
 
         <nav className="flex items-center gap-4 text-sm">
-          <button className="text-sm mr-2 hover:underline">Sign in</button>
-          <button className="px-4 py-2 rounded-full bg-white text-black text-sm font-medium hover:bg-white/90 transition">
+          <Link
+            href="/auth/signin"
+            className="text-sm mr-2 hover:underline"
+          >
+            Sign in
+          </Link>
+          <Link
+            href="/auth/signup"
+            className="px-4 py-2 rounded-full bg-white text-black text-sm font-medium hover:bg-white/90 transition"
+          >
             Sign up
-          </button>
+          </Link>
+          <Link
+            href="/admin"
+            className="px-4 py-2 rounded-full border border-blue-500/70 text-blue-300 text-sm hover:bg-blue-500/10 transition"
+          >
+            Admin
+          </Link>
         </nav>
       </header>
 
@@ -342,44 +355,44 @@ const Footer: React.FC = () => {
           {/* Links */}
           <div className="flex flex-wrap gap-8 md:gap-12">
             <div className="space-y-2">
-  <div className="text-neutral-300 font-medium text-xs md:text-sm">
-    Company
-  </div>
-  <ul className="space-y-1">
-    <li>
-      <a
-        href="/company/about"
-        className="hover:text-neutral-200 transition-colors"
-      >
-        About
-      </a>
-    </li>
-    <li>
-      <a
-        href="/company/learn"
-        className="hover:text-neutral-200 transition-colors"
-      >
-        Learn more
-      </a>
-    </li>
-    <li>
-      <a
-        href="/company/contact"
-        className="hover:text-neutral-200 transition-colors"
-      >
-        Contact
-      </a>
-    </li>
-    <li>
-      <a
-        href="/company/support"
-        className="hover:text-neutral-200 transition-colors"
-      >
-        Support
-      </a>
-    </li>
-  </ul>
-</div>
+              <div className="text-neutral-300 font-medium text-xs md:text-sm">
+                Company
+              </div>
+              <ul className="space-y-1">
+                <li>
+                  <a
+                    href="/company/about"
+                    className="hover:text-neutral-200 transition-colors"
+                  >
+                    About
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="/company/learn"
+                    className="hover:text-neutral-200 transition-colors"
+                  >
+                    Learn more
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="/company/contact"
+                    className="hover:text-neutral-200 transition-colors"
+                  >
+                    Contact
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="/company/support"
+                    className="hover:text-neutral-200 transition-colors"
+                  >
+                    Support
+                  </a>
+                </li>
+              </ul>
+            </div>
 
             <div className="space-y-2">
               <div className="text-neutral-300 font-medium text-xs md:text-sm">
