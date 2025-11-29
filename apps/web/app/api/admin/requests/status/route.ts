@@ -1,16 +1,14 @@
 // apps/web/app/api/admin/requests/status/route.ts
 
 import { NextResponse } from "next/server";
-import {
-  prisma,
-  recordAdminRejectedRequest,
-  recordAdminMarkedCompleted,
-} from "@runesse/db";
+import { prisma } from "@runesse/db";
+import { LedgerScope, LedgerEventType } from "@prisma/client";
+import { recordLedgerEntry } from "@runesse/db/src/ledger";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { requestId, newStatus } = body || {};
+    const { requestId, newStatus, reason } = body || {};
 
     // Basic validation
     if (!requestId || typeof requestId !== "string") {
@@ -52,25 +50,34 @@ export async function POST(req: Request) {
       });
 
       // 3) Write admin action into LedgerEntry
-      if (finalStatus === "COMPLETED") {
-        await recordAdminMarkedCompleted(tx, {
-          requestId,
-          adminId,
-          referenceType: "REQUEST",
-          // buyerId/cardholderId unknown on this simple Request table, so null
-          buyerId: null,
-          cardholderId: null,
-        });
-      } else if (finalStatus === "CANCELLED") {
-        await recordAdminRejectedRequest(tx, {
-          requestId,
-          adminId,
-          referenceType: "REQUEST",
-          reason: "Admin cancelled the request",
-          buyerId: null,
-          cardholderId: null,
-        });
-      }
+      const eventType =
+        finalStatus === "COMPLETED"
+          ? LedgerEventType.ADMIN_MARKED_COMPLETED
+          : LedgerEventType.ADMIN_REJECTED_REQUEST;
+
+      await recordLedgerEntry(tx, {
+        scope: LedgerScope.USER_TRANSACTION,
+        eventType,
+        referenceType: "REQUEST",
+        referenceId: requestId,
+        buyerId: null,
+        cardholderId: null,
+        adminId,
+        accountKey: adminId ? `ADMIN:${adminId}` : null,
+        description:
+          finalStatus === "COMPLETED"
+            ? "Admin marked request as completed"
+            : "Admin cancelled the request",
+        meta: {
+          previousStatus: existing.status,
+          newStatus: finalStatus,
+          actor: "ADMIN",
+          reason:
+            finalStatus === "CANCELLED"
+              ? reason || "Admin cancelled the request"
+              : undefined,
+        },
+      });
 
       return updatedRequest;
     });

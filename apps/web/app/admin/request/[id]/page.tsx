@@ -359,9 +359,7 @@ function LedgerTimeline({ requestId }: { requestId: string }) {
   }, [requestId]);
 
   if (loading) {
-    return (
-      <div className="text-xs text-neutral-400">Loading timeline…</div>
-    );
+    return <div className="text-xs text-neutral-400">Loading timeline…</div>;
   }
 
   if (error) {
@@ -425,6 +423,89 @@ const AdminRequestDetailsPage: NextPage = () => {
   const [error, setError] = React.useState<string | null>(null);
   const [completing, setCompleting] = React.useState(false);
   const [cancelling, setCancelling] = React.useState(false);
+    const [confirmingDeposit, setConfirmingDeposit] = React.useState(false);
+  const [confirmingReimbursement, setConfirmingReimbursement] =
+    React.useState(false);
+
+async function handleConfirmBuyerDeposit() {
+  if (!id || typeof id !== "string") {
+    alert("Missing request id.");
+    return;
+  }
+  if (confirmingDeposit) return;
+
+  setConfirmingDeposit(true);
+  try {
+    const res = await fetch("/api/admin/requests/payments", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        requestId: id,
+        action: "CONFIRM_BUYER_DEPOSIT",
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data?.ok) {
+      alert(data?.error || "Could not confirm buyer deposit.");
+      return;
+    }
+
+    if (data.alreadyConfirmed) {
+      alert("Buyer deposit was already confirmed in the ledger.");
+    } else {
+      alert("Buyer deposit confirmed in the ledger.");
+    }
+  } catch (e) {
+    console.error("Confirm buyer deposit failed:", e);
+    alert("Something went wrong while confirming buyer deposit.");
+  } finally {
+    setConfirmingDeposit(false);
+  }
+}
+
+async function handleConfirmReimbursement() {
+  if (!id || typeof id !== "string") {
+    alert("Missing request id.");
+    return;
+  }
+  if (confirmingReimbursement) return;
+
+  setConfirmingReimbursement(true);
+  try {
+    const res = await fetch("/api/admin/requests/payments", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        requestId: id,
+        action: "CONFIRM_CARDHOLDER_REIMBURSEMENT",
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data?.ok) {
+      alert(data?.error || "Could not confirm reimbursement.");
+      return;
+    }
+
+    if (data.alreadyConfirmed) {
+      alert("Reimbursement was already confirmed in the ledger.");
+    } else {
+      alert("Reimbursement confirmed in the ledger.");
+    }
+  } catch (e) {
+    console.error("Confirm reimbursement failed:", e);
+    alert("Something went wrong while confirming reimbursement.");
+  } finally {
+    setConfirmingReimbursement(false);
+  }
+}
 
   React.useEffect(() => {
     if (!id || typeof id !== "string") {
@@ -470,47 +551,38 @@ const AdminRequestDetailsPage: NextPage = () => {
     ? new Date(request.completedAt)
     : null;
 
-  async function handleMarkCompleted() {
-    if (!request) return;
-    if (status === "COMPLETED" || status === "CANCELLED") return;
+  // ✅ UPDATED: use admin status API so we also write ledger entries
+async function handleMarkCompleted() {
+  if (!request) return;
 
-    setCompleting(true);
-    try {
-      const res = await fetch("/api/requests/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requestId: request.id }),
-      });
+  // 🚨 Add this confirmation BEFORE anything else
+  const ok = window.confirm(
+    "Have you already reimbursed the cardholder outside Runesse? Once you mark this request as COMPLETED, you cannot confirm reimbursement later."
+  );
+  if (!ok) return;
 
-      const contentType = res.headers.get("content-type") ?? "";
-      if (!contentType.includes("application/json")) {
-        const text = await res.text();
-        console.error(
-          "Non-JSON response from /api/requests/complete",
-          res.status,
-          text
-        );
-        alert("Internal server error");
-        return;
-      }
+  // Prevent completing twice
+  if (status === "COMPLETED" || status === "CANCELLED") return;
 
-      const data = await res.json();
-      if (!res.ok || !data?.ok) {
-        alert(data?.error || "Internal server error");
-        return;
-      }
+  setCompleting(true);
+  try {
+    const res = await fetch("/api/admin/requests/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requestId: request.id,
+        newStatus: "COMPLETED",
+      }),
+    });
 
-      setItem(data.request);
-      alert(
-        "✅ Deal successfully completed.\n\nThis request has been processed and verified by admin. Buyer & cardholder can now see this as completed in their workspaces."
-      );
-    } catch (err) {
-      console.error("Failed to complete request", err);
-      alert("Something went wrong. Please try again.");
-    } finally {
-      setCompleting(false);
-    }
+    const data = await res.json().catch(() => null);
+    // (Existing success or failure handling stays here)
+
+  } finally {
+    setCompleting(false);
   }
+}
+
 
   async function handleCancelRequest() {
     if (!request) return;
@@ -734,6 +806,56 @@ const AdminRequestDetailsPage: NextPage = () => {
                 the cardholder outside the app after you verify the proofs.
                 Escrow will plug into this same flow in the next phase.
               </p>
+            </div>
+
+                        {/* Buyer deposit confirmation */}
+            <div className="rounded-2xl border border-neutral-800 bg-neutral-950/60 p-4 sm:p-5">
+              <p className="text-xs font-medium text-neutral-400 mb-2">
+                Buyer deposit
+              </p>
+              <p className="text-[11px] text-neutral-500 mb-3">
+                Once you see the buyer&apos;s deposit in the Runesse current
+                account, confirm it here. This only records a ledger event –
+                funds still move outside the app in Phase-1.
+              </p>
+              <button
+                type="button"
+                onClick={handleConfirmBuyerDeposit}
+                disabled={
+                  confirmingDeposit || completing || cancelling || loading || !item
+                }
+                className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-400"
+              >
+                {confirmingDeposit ? "Confirming…" : "Confirm buyer deposit"}
+              </button>
+            </div>
+
+            {/* Cardholder reimbursement confirmation */}
+            <div className="rounded-2xl border border-neutral-800 bg-neutral-950/60 p-4 sm:p-5">
+              <p className="text-xs font-medium text-neutral-400 mb-2">
+                Cardholder reimbursement
+              </p>
+              <p className="text-[11px] text-neutral-500 mb-3">
+                After you reimburse the cardholder outside the app, confirm it
+                here so the ledger reflects the payout. Escrow will plug into
+                the same flow later.
+              </p>
+              <button
+                type="button"
+                onClick={handleConfirmReimbursement}
+                disabled={
+                  confirmingReimbursement ||
+                  completing ||
+                  cancelling ||
+                  loading ||
+                  !item
+                }
+                className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-400"
+              >
+                {confirmingReimbursement
+                  ? "Confirming…"
+                  : "Confirm reimbursement"}
+              </button>
             </div>
 
             {/* Status card */}

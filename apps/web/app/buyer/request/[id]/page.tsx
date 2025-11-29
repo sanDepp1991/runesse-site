@@ -114,7 +114,6 @@ function ProofUploadSlot({
   const [error, setError] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
-  // ✅ Correct endpoint based on proof type
   const uploadEndpoint =
     proofType.startsWith("buyer-")
       ? "/api/buyer/proofs/upload"
@@ -131,8 +130,6 @@ function ProofUploadSlot({
       const fd = new FormData();
       fd.append("file", file);
       fd.append("requestId", requestId);
-
-      // ✅ Send BOTH keys to avoid stale mismatch
       fd.append("proofType", proofType);
       fd.append("type", proofType);
 
@@ -244,6 +241,9 @@ export default function BuyerRequestDetailsPage() {
   const [item, setItem] = React.useState<any | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
+  const [cancelLoading, setCancelLoading] = React.useState(false);
+  const [cancelError, setCancelError] = React.useState<string | null>(null);
+
   React.useEffect(() => {
     if (!id || typeof id !== "string") {
       setError("Invalid request link.");
@@ -278,6 +278,48 @@ export default function BuyerRequestDetailsPage() {
     load();
   }, [id]);
 
+  async function handleCancelRequest() {
+    if (!item) return;
+    if (!window.confirm("Do you really want to cancel this request?")) return;
+
+    setCancelError(null);
+    setCancelLoading(true);
+
+    try {
+      const res = await fetch("/api/buyer/requests/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          requestId: item.id,
+          reason: "Cancelled by buyer from UI",
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.ok) {
+        setCancelError(
+          data?.error ||
+            "Could not cancel the request. It may already be matched or completed."
+        );
+        setCancelLoading(false);
+        return;
+      }
+
+      setItem((prev: any) => ({
+        ...prev,
+        status: "CANCELLED",
+      }));
+    } catch (err) {
+      console.error(err);
+      setCancelError("Something went wrong. Please try again.");
+    } finally {
+      setCancelLoading(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
@@ -291,7 +333,10 @@ export default function BuyerRequestDetailsPage() {
       <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
         <div className="text-center space-y-3 max-w-md">
           <p className="text-sm text-neutral-300">{error || "Unknown error."}</p>
-          <Link href="/buyer" className="text-xs text-sky-400 hover:text-sky-300">
+          <Link
+            href="/buyer"
+            className="text-xs text-sky-400 hover:text-sky-300"
+          >
             ← Back to buyer dashboard
           </Link>
         </div>
@@ -537,6 +582,30 @@ export default function BuyerRequestDetailsPage() {
                 </p>
               )}
 
+              {status === "CANCELLED" && (
+                <p className="mt-2 text-[11px] text-red-300">
+                  This request has been cancelled.
+                </p>
+              )}
+
+              {status === "PENDING" && (
+                <div className="mt-3 space-y-1">
+                  <button
+                    type="button"
+                    onClick={handleCancelRequest}
+                    disabled={cancelLoading}
+                    className="w-full rounded-lg border border-red-600/60 bg-red-950/40 px-3 py-1.5 text-[11px] font-medium text-red-200 hover:bg-red-900/60 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {cancelLoading ? "Cancelling…" : "Cancel this request"}
+                  </button>
+                  {cancelError && (
+                    <p className="text-[10px] text-red-300 mt-1">
+                      {cancelError}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {readOnlyAfterComplete && (
                 <p className="mt-2 text-[11px] text-neutral-500">
                   This trade is closed. Proofs are read-only now.
@@ -552,6 +621,16 @@ export default function BuyerRequestDetailsPage() {
                 Phase-1 (manual): Runesse verifies every transaction. You need to
                 reimburse only after invoice verification.
               </p>
+
+              {/* Record deposit button */}
+              <div className="mt-3">
+                <Link
+                  href={`/buyer/request/${request.id}/deposit`}
+                  className="inline-flex items-center rounded-lg border border-emerald-500/60 px-3 py-1.5 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/10"
+                >
+                  Record deposit to Runesse
+                </Link>
+              </div>
             </div>
           </div>
         </div>

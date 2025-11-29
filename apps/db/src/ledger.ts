@@ -27,21 +27,23 @@ export interface RecordLedgerEntryArgs {
   accountKey?: string | null;
 
   // Business references
-  referenceId?: string | null; // e.g. buyerRequestId, transactionId, walletId
-  referenceType?: string | null; // e.g. "BUYER_REQUEST", "TRANSACTION", "WALLET"
+  referenceType?: string | null; // e.g. "REQUEST", "DEPOSIT_INTENT"
+  referenceId?: string | null;
 
-  // Actors
+  // Actor references
   buyerId?: string | null;
   cardholderId?: string | null;
-  adminId?: string | null; // who performed/approved the action (if applicable)
+  adminId?: string | null;
 
-  // Description + extra JSON
+  // Human-readable description
   description?: string | null;
-  meta?: Record<string, any> | null;
+
+  // Arbitrary metadata (JSON)
+  meta?: Prisma.InputJsonValue | null;
 }
 
 /**
- * Shared low-level helper for writing a LedgerEntry row.
+ * Generic helper to write a ledger entry.
  *
  * Always call this **inside** a prisma.$transaction(async (tx) => { ... })
  * and pass the transaction client as `tx`.
@@ -57,8 +59,8 @@ export async function recordLedgerEntry(
     amount,
     currency,
     accountKey,
-    referenceId,
     referenceType,
+    referenceId,
     buyerId,
     cardholderId,
     adminId,
@@ -79,60 +81,67 @@ export async function recordLedgerEntry(
       eventType,
       side: side ?? null,
       amount: amountValue,
-      currency: currency ?? "INR",
+      currency: currency ?? (amountValue ? "INR" : null),
+
       accountKey: accountKey ?? null,
-      referenceId: referenceId ?? null,
+
       referenceType: referenceType ?? null,
+      referenceId: referenceId ?? null,
+
       buyerId: buyerId ?? null,
       cardholderId: cardholderId ?? null,
       adminId: adminId ?? null,
+
       description: description ?? null,
-      meta: meta ?? undefined, // Prisma will store as Json
+      meta: meta ?? null,
     },
   });
 }
 
 /**
- * Convenience helper: log when a cardholder uploads proof
- * (invoice + card proof etc.) for a given BuyerRequest.
+ * Convenience helper:
+ * Record that a cardholder accepted a request ("I can take this").
  *
- * Use this from the proof-upload API inside a transaction:
+ * This is purely an operational event for now – no money movement yet.
  *
- *   await recordCardholderProofUploaded(tx, { ... });
+ * Usage:
+ *   await recordCardholderAcceptedRequest(tx, { requestId, cardholderId });
  */
-export async function recordCardholderProofUploaded(
+export async function recordCardholderAcceptedRequest(
   tx: Prisma.TransactionClient,
   args: {
-    buyerRequestId: string;
-    cardholderId: string;
-    proofUploadId: string;
-    adminId?: string | null; // optional, for later manual verification
+    requestId: string;
+    cardholderId?: string | null;
+    matchedCardholderEmail?: string | null;
   }
 ) {
-  const { buyerRequestId, cardholderId, proofUploadId, adminId } = args;
+  const { requestId, cardholderId, matchedCardholderEmail } = args;
 
   await recordLedgerEntry(tx, {
     scope: LedgerScope.USER_TRANSACTION,
-    eventType: LedgerEventType.CARDHOLDER_PROOF_UPLOADED,
+    eventType: LedgerEventType.CARDHOLDER_ACCEPTED,
 
-    referenceType: "PROOF_UPLOAD",
-    referenceId: proofUploadId,
-
-    buyerId: null,
-    cardholderId,
-    adminId: adminId ?? null,
-
-    // No money movement yet in Phase-1 (manual payments)
+    // No money movement yet
     side: null,
     amount: null,
     currency: "INR",
 
-    accountKey: `USER:${cardholderId}`,
+    accountKey: cardholderId
+      ? `USER:${cardholderId}`
+      : "PLATFORM:CARDHOLDER_UNIDENTIFIED",
 
-    description: "Cardholder uploaded proof for buyer request",
+    referenceType: "REQUEST",
+    referenceId: requestId,
+
+    buyerId: null,
+    cardholderId: cardholderId ?? null,
+    adminId: null,
+
+    description: "Cardholder accepted the request for payment",
     meta: {
-      buyerRequestId,
-      proofUploadId,
+      requestId,
+      cardholderId: cardholderId ?? null,
+      matchedCardholderEmail: matchedCardholderEmail ?? null,
     },
   });
 }

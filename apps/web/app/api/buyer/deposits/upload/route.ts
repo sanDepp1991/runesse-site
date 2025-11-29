@@ -1,3 +1,5 @@
+// apps/web/app/api/buyer/deposits/upload/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@runesse/db";
 import { LedgerScope, LedgerEventType } from "@prisma/client";
@@ -9,7 +11,13 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null as any);
+
     const requestId = body?.requestId as string | undefined;
+    const amountRaw = body?.amount as number | string | undefined;
+    const currency = (body?.currency as string | undefined) ?? "INR";
+    const method = (body?.method as string | undefined) ?? null; // UPI / NEFT / RTGS etc.
+    const utr = (body?.utr as string | undefined) ?? null;
+    const paidAtIso = (body?.paidAt as string | undefined) ?? null;
 
     if (!requestId || typeof requestId !== "string") {
       return NextResponse.json(
@@ -18,10 +26,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let updatedRequest: any = null;
+    if (amountRaw === undefined || amountRaw === null || amountRaw === "") {
+      return NextResponse.json(
+        { ok: false, error: "Missing amount" },
+        { status: 400 }
+      );
+    }
+
+    const amount = typeof amountRaw === "string" ? Number(amountRaw) : amountRaw;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid amount" },
+        { status: 400 }
+      );
+    }
 
     await prisma.$transaction(async (tx) => {
-      // 1) Load existing request
       const existing = await tx.request.findUnique({
         where: { id: requestId },
       });
@@ -30,52 +50,31 @@ export async function POST(req: NextRequest) {
         throw new Error("REQUEST_NOT_FOUND");
       }
 
-      // Later, when auth is wired, we will use the real logged-in cardholder.
-      const matchedCardholderEmail = existing.matchedCardholderEmail ?? null;
-
-      // 2) Update the request as MATCHED (Phase-1 behaviour)
-      updatedRequest = await tx.request.update({
-        where: { id: requestId },
-        data: {
-          status: "MATCHED",
-          matchedAt: new Date(),
-          // In future: matchedCardholderEmail and cardholderId from auth
-        },
-      });
-
-      // 3) Write ledger entry for CARDHOLDER_ACCEPTED
       await recordLedgerEntry(tx, {
         scope: LedgerScope.USER_TRANSACTION,
-        eventType: LedgerEventType.CARDHOLDER_ACCEPTED,
+        eventType: LedgerEventType.BUYER_DEPOSIT_CREATED, // ✅ matches Prisma
         side: null,
-        amount: null,
-        currency: "INR",
-        accountKey: "PLATFORM:CARDHOLDER_PHASE1",
-
+        amount,
+        currency,
+        accountKey: "USER:BUYER_PHASE1",
         referenceType: "REQUEST",
-        referenceId: updatedRequest.id,
-
-        buyerId: null,
+        referenceId: existing.id,
+        buyerId: null, // later from auth
         cardholderId: null,
         adminId: null,
-
-        description: "Cardholder accepted request (Phase-1 manual flow)",
+        description: "Buyer reported deposit to Runesse current account",
         meta: {
-          requestId: updatedRequest.id,
-          previousStatus: existing.status,
-          newStatus: updatedRequest.status,
+          requestId: existing.id,
           buyerEmail: existing.buyerEmail,
-          productLink: existing.productLink,
-          matchedCardholderEmail,
+          method,
+          utr,
+          paidAt: paidAtIso,
         },
       });
     });
 
     return NextResponse.json(
-      {
-        ok: true,
-        request: updatedRequest,
-      },
+      { ok: true, message: "Buyer deposit recorded in ledger" },
       { status: 200 }
     );
   } catch (err: any) {
@@ -86,7 +85,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.error("API ERROR /api/cardholder/requests/take:", err);
+    console.error("API ERROR /api/buyer/deposits/upload:", err);
     return NextResponse.json(
       { ok: false, error: "Internal server error" },
       { status: 500 }
