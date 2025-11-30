@@ -168,6 +168,12 @@ enum LedgerSide {
   CREDIT
 }
 
+enum BankAccountStatus {
+  PENDING
+  VERIFIED
+  FAILED
+}
+
 enum LedgerEventType {
   // ---------------------------------------
   // REQUEST LIFECYCLE (Buyer + System)
@@ -268,34 +274,91 @@ model UserProfile {
   updatedAt   DateTime  @updatedAt
 }
 
+model UserBankAccount {
+  id                String            @id @default(uuid())
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  // Who this account belongs to
+  userEmail         String
+  role              UserRole          // BUYER / CARDHOLDER / BOTH
+
+  // Bank account details
+  accountHolderName String
+  accountNumber     String
+  ifsc              String
+  bankName          String?
+  branchName        String?
+
+  status            BankAccountStatus @default(PENDING)
+  verificationMethod String?          // e.g. "PENNY_DROP", "MANUAL"
+  lastVerifiedAt     DateTime?
+
+  @@index([userEmail, role])
+}
+
+// ---------- SAVED CARD (cardholder vault) ----------
+
+model SavedCard {
+  id              String    @id @default(uuid())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  /// Cardholder identity (email for now; later can be userId)
+  cardholderEmail String
+
+  /// Card data (never store full PAN)
+  bin             String      // first 6 digits
+  last4           String      // last 4 digits
+
+  issuer          String?
+  brand           String?
+  network         String?
+  country         String?
+  label           String?
+  isActive        Boolean   @default(true)
+
+  // Back-reference: all requests that used this saved card
+  requests        Request[] @relation("SavedCardRequests")
+
+  @@index([cardholderEmail])
+  @@index([cardholderEmail, bin, last4])
+}
+
 // --- Runesse: Simple buyer requests (Phase 0) ---
 
 model Request {
-  id                          String           @id @default(cuid())
-  createdAt                   DateTime         @default(now())
-  updatedAt                   DateTime         @updatedAt
-  buyerCheckoutScreenshotUrl  String?          @db.Text
-  buyerProductScreenshotUrl   String?          @db.Text
-  cardholderInvoiceUrl        String?          @db.Text
-  cardholderCardProofUrl      String?          @db.Text
+  id                         String           @id @default(cuid())
+  createdAt                  DateTime         @default(now())
+  updatedAt                  DateTime         @updatedAt
+
+  buyerCheckoutScreenshotUrl String?          @db.Text
+  buyerProductScreenshotUrl  String?          @db.Text
+  cardholderInvoiceUrl       String?          @db.Text
+  cardholderCardProofUrl     String?          @db.Text
+
+  // Saved card used by cardholder
+  matchedCardId              String?
+  matchedCard                SavedCard?       @relation("SavedCardRequests", fields: [matchedCardId], references: [id])
 
   // buyer
-  buyerEmail                  String
+  buyerEmail                 String
 
   // product info
-  productLink                 String
-  productName                 String?
-  checkoutPrice               Int?
-  notes                       String?
+  productLink                String
+  productName                String?
+  checkoutPrice              Int?
+  notes                      String?
 
   // workflow status
-  status                      NewRequestStatus @default(PENDING)
+  status                     NewRequestStatus @default(PENDING)
 
   // ---- NEW FIELDS ----
-  matchedCardholderEmail String? @db.VarChar @map("matchedCardholderEmail")
-  matchedAt                   DateTime?
+  matchedCardholderEmail     String?          @db.VarChar @map("matchedCardholderEmail")
+  matchedAt                  DateTime?
 
-  @@index([buyerEmail, status])
+  @@index([status, buyerEmail])
+  @@index([matchedCardId])
 }
 
 enum NewRequestStatus {
