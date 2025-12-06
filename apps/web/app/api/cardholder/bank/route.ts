@@ -30,11 +30,12 @@ export async function GET() {
   }
 }
 
-// POST: create or update cardholder bank account
+// POST: create or update cardholder's bank account
 export async function POST(req: NextRequest) {
   try {
     const { userEmail, role } = getDemoCardholderIdentity();
-    const body = await req.json().catch(() => ({}));
+
+    const body = await req.json();
 
     const accountHolderName = String(body.accountHolderName || "").trim();
     const accountNumber = String(body.accountNumber || "").trim();
@@ -48,7 +49,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Account holder name, account number and IFSC are required.",
+          error:
+            "Account holder name, account number and IFSC are required.",
         },
         { status: 400 },
       );
@@ -84,6 +86,8 @@ export async function POST(req: NextRequest) {
           bankName,
           branchName,
           status: "PENDING",
+          verificationMethod: null,
+          lastVerifiedAt: null,
         },
       });
     }

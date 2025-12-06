@@ -3,6 +3,15 @@
 import Link from "next/link";
 import React from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "../../../lib/supabaseClient";
+
+type ProductAnalysis = {
+  bankOffers: string[];
+  cashbackOffers: string[];
+  hasNoCostEmi: boolean;
+  suggestedOfferPercent: number | null;
+  bestOfferText: string | null;
+};
 
 export default function NewRequestPage() {
   const router = useRouter();
@@ -10,6 +19,9 @@ export default function NewRequestPage() {
   const [productLink, setProductLink] = React.useState("");
   const [productName, setProductName] = React.useState("");
   const [checkoutPrice, setCheckoutPrice] = React.useState("");
+  const [offerPercent, setOfferPercent] = React.useState<string>(""); // instant benefit %
+  const [futureBenefitPercent, setFutureBenefitPercent] =
+    React.useState<string>(""); // cashback later %
   const [notes, setNotes] = React.useState("");
 
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -17,35 +29,37 @@ export default function NewRequestPage() {
 
   const [isFetchingDetails, setIsFetchingDetails] = React.useState(false);
   const [fetchError, setFetchError] = React.useState<string | null>(null);
+  const [analysis, setAnalysis] = React.useState<ProductAnalysis | null>(null);
 
-  // 🔍 Call backend to analyse product URL
   async function handleFetchFromLink() {
-    setFetchError(null);
-    setError(null);
-
-    const url = productLink.trim();
-    if (!url) {
-      setFetchError("Please paste a product link first.");
-      return;
-    }
+    if (!productLink.trim()) return;
 
     setIsFetchingDetails(true);
+    setFetchError(null);
+    setAnalysis(null);
+
     try {
       const res = await fetch("/api/product/parse", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ url: productLink.trim() }),
       });
 
-      const data = await res.json().catch(() => ({} as any));
+      const data = await res.json().catch(() => null);
 
       if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || "Could not read product details.");
+        console.error("product/parse error:", data?.error || res.statusText);
+        setFetchError(
+          data?.error ||
+            "We couldn’t read this link. You can still enter details manually."
+        );
+        return;
       }
 
-      // Only overwrite if backend returns something
       if (data.productName && !productName) {
-        setProductName(String(data.productName));
+        setProductName(data.productName);
       }
       if (
         typeof data.price === "number" &&
@@ -55,152 +69,205 @@ export default function NewRequestPage() {
         setCheckoutPrice(String(data.price));
       }
 
+      const detected: ProductAnalysis = {
+        bankOffers: Array.isArray(data.bankOffers) ? data.bankOffers : [],
+        cashbackOffers: Array.isArray(data.cashbackOffers)
+          ? data.cashbackOffers
+          : [],
+        hasNoCostEmi: Boolean(data.hasNoCostEmi),
+        suggestedOfferPercent:
+          typeof data.suggestedOfferPercent === "number"
+            ? data.suggestedOfferPercent
+            : null,
+        bestOfferText:
+          typeof data.bestOfferText === "string" && data.bestOfferText.trim()
+            ? data.bestOfferText.trim()
+            : null,
+      };
+      setAnalysis(detected);
+
+      // Auto-fill offerPercent if empty
+      if (
+        !offerPercent &&
+        detected.suggestedOfferPercent != null &&
+        detected.suggestedOfferPercent > 0
+      ) {
+        setOfferPercent(String(detected.suggestedOfferPercent));
+      }
+
       if (!data.productName && !data.price) {
         setFetchError(
-          "Link opened, but we couldn't confidently read name or price. You can enter them manually."
+          "Link opened, but we couldn’t confidently read name or price. You can enter them manually."
         );
       } else {
         setFetchError(null);
       }
-  } catch (err: any) {
-    console.warn(err);
-    setFetchError(
-      err?.message ||
-        "Something went wrong while checking the product link."
-    );
-  } finally {
+    } catch (err) {
+      console.error("product/parse exception:", err);
+      setFetchError(
+        "We couldn’t reach the marketplace. Please check the link or try again."
+      );
+    } finally {
       setIsFetchingDetails(false);
     }
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
     const cleanProductLink = productLink.trim();
     if (!cleanProductLink) {
-      setError("Product link is required.");
+      setError("Please enter a valid product link.");
       return;
     }
 
-    setIsSubmitting(true);
+    if (!productName.trim()) {
+      setError("Please enter the product name.");
+      return;
+    }
 
-    // Phase-1 demo buyer identity
-    const buyerEmail = "buyer@demo.runesse";
+    const parsedPrice = Number(checkoutPrice);
+    if (!checkoutPrice || Number.isNaN(parsedPrice) || parsedPrice <= 0) {
+      setError("Please enter a valid approximate checkout price.");
+      return;
+    }
 
-    try {
-      const res = await fetch("/api/requests", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          buyerEmail,
-          productLink: cleanProductLink,
-          productName: productName.trim() || null,
-          checkoutPrice: checkoutPrice.trim(),
-          notes: notes.trim(),
-        }),
-      });
+    const parsedOfferPercent = offerPercent
+      ? Number(offerPercent)
+      : undefined;
+    const parsedFutureBenefitPercent = futureBenefitPercent
+      ? Number(futureBenefitPercent)
+      : undefined;
 
-      const data = await res.json().catch(() => ({} as any));
+    if (
+      offerPercent &&
+      (Number.isNaN(parsedOfferPercent) ||
+        parsedOfferPercent! < 0 ||
+        parsedOfferPercent! > 80)
+    ) {
+      setError("Please enter a realistic instant offer percentage (0–80%).");
+      return;
+    }
 
-      if (!res.ok || data?.error) {
+    if (
+      futureBenefitPercent &&
+      (Number.isNaN(parsedFutureBenefitPercent) ||
+        parsedFutureBenefitPercent! < 0 ||
+        parsedFutureBenefitPercent! > 80)
+    ) {
+      setError(
+        "Please enter a realistic future cashback percentage (0–80%)."
+      );
+      return;
+    }
+
+setIsSubmitting(true);
+
+try {
+  // Get Supabase session and token
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const token = session?.access_token ?? null;
+
+  const res = await fetch("/api/requests", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      // buyerEmail now comes from the backend via Supabase
+      productLink: cleanProductLink,
+      productName,
+      checkoutPrice,
+      notes,
+    }),
+  });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.ok || !data.request?.id) {
+        console.error("Create request error:", data?.error || res.statusText);
         setError(
-          data?.message ||
-            data?.error ||
-            "Something went wrong while creating the request."
+          data?.error || "Something went wrong while creating the request."
         );
         setIsSubmitting(false);
         return;
       }
 
-      // Success – go back to Buyer home
-      router.push("/buyer");
+      // Go to the new request details page
+      router.push(`/buyer/request/${data.request.id}`);
     } catch (err) {
-      console.error(err);
-      setError("Network error. Please try again.");
+      console.error("Create request exception:", err);
+      setError("Something went wrong. Please try again.");
       setIsSubmitting(false);
     }
   }
 
   return (
-    <div className="min-h-screen bg-black text-slate-100">
-      <div className="mx-auto max-w-3xl px-4 py-8">
-        {/* Breadcrumb + back */}
-        <div className="mb-6 flex items-center justify-between">
-          <div className="text-xs text-slate-400">
-            <Link href="/buyer" className="hover:underline">
-              Buyer
-            </Link>{" "}
-            / <span className="text-slate-200">New request</span>
-          </div>
-
-          <Link
-            href="/buyer"
-            className="text-xs rounded-full border border-neutral-700 px-3 py-1 text-slate-200 hover:bg-neutral-900 transition"
-          >
-            ← Back to Buyer home
-          </Link>
-        </div>
-
-        {/* Form card */}
-        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/80 p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400">
-            New request
-          </p>
-          <h1 className="mt-2 text-xl font-semibold">
-            Create a new Runesse request.
-          </h1>
-          <p className="mt-2 text-sm text-slate-300">
-            Share the product details and your expected price. Card holders with
-            matching offers can pick this up. Later we&apos;ll add file uploads
-            and automatic verification here.
-          </p>
-
-          {error && (
-            <div className="mt-4 rounded-lg border border-red-500/60 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-              {error}
+    <div className="min-h-screen bg-black text-neutral-100">
+      <div className="border-b border-neutral-900 bg-gradient-to-b from-black to-neutral-950/60">
+        <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-3.5 sm:py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <Link
+                href="/buyer"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-neutral-800 bg-neutral-950 text-neutral-400 hover:text-neutral-50 hover:border-neutral-600"
+                aria-label="Back to buyer dashboard"
+              >
+                ←
+              </Link>
+              <div className="min-w-0">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-500">
+                  New request
+                </p>
+                <h1 className="text-sm sm:text-base font-medium text-neutral-50 truncate">
+                  Create a new Runesse request.
+                </h1>
+                <p className="mt-0.5 text-[11px] text-neutral-500 truncate">
+                  Share the product details and your expected price. Card
+                  holders with matching offers can pick this up.
+                </p>
+              </div>
             </div>
-          )}
+          </div>
+        </div>
+      </div>
 
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-            {/* Product URL */}
+      <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-6 sm:py-7">
+        <div className="rounded-2xl border border-neutral-900 bg-neutral-950/70 p-4 sm:p-5">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Product link + fetch */}
             <div className="space-y-2">
-              <div className="flex items-end justify-between gap-2">
-                <div className="flex-1 space-y-1">
-                  <label className="text-xs font-medium text-slate-200">
-                    Product link{" "}
-                    <span className="text-emerald-400">*</span>
-                  </label>
-                  <input
-                    name="productLink"
-                    type="url"
-                    required
-                    placeholder="https://www.amazon.in/…"
-                    className="w-full rounded-lg border border-neutral-700 bg-black/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-500"
-                    value={productLink}
-                    onChange={(e) => setProductLink(e.target.value)}
-                  />
-                  <p className="text-[11px] text-slate-500">
-                    Paste the exact URL of the product page (Amazon, Flipkart,
-                    Myntra, Ajio, etc.). Runesse will try to auto-fill the name
-                    and price from this link.
-                  </p>
-                </div>
-
+              <label className="text-xs font-medium text-slate-200">
+                Product link <span className="text-red-400">*</span>
+              </label>
+              <p className="text-[11px] text-neutral-500 mb-1">
+                Paste the exact URL of the product page (Amazon, Flipkart,
+                Myntra, Ajio, etc.). Runesse will try to auto-fill the name,
+                price and best offer from this link.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="url"
+                  className="flex-1 rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/70"
+                  placeholder="https://www.amazon.in/…"
+                  value={productLink}
+                  onChange={(e) => setProductLink(e.target.value)}
+                />
                 <button
                   type="button"
                   onClick={handleFetchFromLink}
                   disabled={isFetchingDetails || !productLink.trim()}
-                  className="mt-5 whitespace-nowrap rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="mt-1 sm:mt-0 whitespace-nowrap rounded-full border border-emerald-600/70 bg-emerald-600/10 px-3.5 py-1.5 text-xs font-medium text-emerald-200 hover:bg-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isFetchingDetails ? "Checking link…" : "Fetch details"}
                 </button>
               </div>
-
               {fetchError && (
-                <p className="text-[11px] text-red-400">{fetchError}</p>
+                <p className="text-[11px] text-red-400 mt-1">{fetchError}</p>
               )}
             </div>
 
@@ -210,54 +277,160 @@ export default function NewRequestPage() {
                 Product name
               </label>
               <input
-                name="productName"
                 type="text"
-                placeholder='Sony Bravia 55" 4K TV'
-                className="w-full rounded-lg border border-neutral-700 bg-black/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-500"
+                className="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/70"
+                placeholder="Eg: Apple iPhone 16 Pro Max (256 GB)"
                 value={productName}
                 onChange={(e) => setProductName(e.target.value)}
               />
             </div>
 
-            {/* Price + Notes */}
-            <div className="grid gap-3 sm:grid-cols-2">
+            {/* Checkout price */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-200">
+                Approximate checkout price (₹)
+              </label>
+              <input
+                type="number"
+                min={1}
+                className="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/70"
+                placeholder="Eg: 134900"
+                value={checkoutPrice}
+                onChange={(e) => setCheckoutPrice(e.target.value)}
+              />
+              <p className="text-[10px] text-neutral-500">
+                Include all charges (product + shipping + taxes) at the final
+                checkout page.
+              </p>
+            </div>
+
+            {/* Offer percentages */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-200">
-                  Approximate checkout price (₹)
+                  Instant offer % (card / bank offer)
                 </label>
                 <input
-                  name="checkoutPrice"
                   type="number"
                   min={0}
-                  step="1"
-                  placeholder="45000"
-                  className="w-full rounded-lg border border-neutral-700 bg-black/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-500"
-                  value={checkoutPrice}
-                  onChange={(e) => setCheckoutPrice(e.target.value)}
+                  max={80}
+                  className="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/70"
+                  placeholder="Eg: 10"
+                  value={offerPercent}
+                  onChange={(e) => setOfferPercent(e.target.value)}
                 />
+                <p className="text-[10px] text-neutral-500">
+                  If there is a “10% instant discount” on a specific card, enter
+                  10 here. We may pre-fill this from the detected best offer.
+                </p>
               </div>
-
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-200">
-                  Notes for card holder
+                  Future cashback % (optional)
                 </label>
                 <input
-                  name="notes"
-                  type="text"
-                  placeholder="Eg: Need delivery before 25th"
-                  className="w-full rounded-lg border border-neutral-700 bg-black/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-500"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
+                  type="number"
+                  min={0}
+                  max={80}
+                  className="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/70"
+                  placeholder="Eg: 5"
+                  value={futureBenefitPercent}
+                  onChange={(e) => setFutureBenefitPercent(e.target.value)}
                 />
+                <p className="text-[10px] text-neutral-500">
+                  Use this if there is an additional cashback that is credited
+                  later (for example, after 60–90 days).
+                </p>
               </div>
             </div>
 
-            {/* Submit */}
-            <div className="pt-2 flex justify-end">
+            {/* Best offer block */}
+            {analysis && (
+              <div className="rounded-2xl border border-emerald-700/40 bg-emerald-950/20 px-3.5 py-3 space-y-2">
+                <p className="text-[11px] font-medium text-emerald-200">
+                  Best offer detected (beta)
+                </p>
+                <p className="text-[10px] text-emerald-100/80">
+                  We scanned the product page for bank offers, EMI and cashback
+                  hints. Always double-check on the original site before
+                  deciding.
+                </p>
+
+                <div className="mt-1 text-[11px] text-neutral-100">
+                  {analysis.bestOfferText || analysis.suggestedOfferPercent ? (
+                    <>
+                      <p className="font-semibold">
+                        {analysis.bestOfferText ??
+                          `${analysis.suggestedOfferPercent}% offer detected.`}
+                      </p>
+                      {analysis.suggestedOfferPercent != null && (
+                        <p className="text-[10px] text-neutral-300 mt-0.5">
+                          Suggested instant offer %:{" "}
+                          <span className="font-semibold text-emerald-200">
+                            {analysis.suggestedOfferPercent}%
+                          </span>{" "}
+                          (you can edit the value above).
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-[10px] text-neutral-300">
+                      We couldn’t confidently detect a single “best” offer. You
+                      can type the numbers manually from the marketplace.
+                    </p>
+                  )}
+                </div>
+
+                {(analysis.bankOffers.length > 0 ||
+                  analysis.cashbackOffers.length > 0) && (
+                  <details className="mt-2 text-[10px] text-neutral-300">
+                    <summary className="cursor-pointer select-none underline underline-offset-2 decoration-emerald-500/70 hover:text-neutral-50">
+                      Show all detected offer lines
+                    </summary>
+                    <ul className="mt-1.5 space-y-1 max-h-28 overflow-y-auto pr-1">
+                      {[...analysis.bankOffers, ...analysis.cashbackOffers]
+                        .slice(0, 12)
+                        .map((line, idx) => (
+                          <li key={idx} className="text-[10px] text-neutral-100">
+                            • {line}
+                          </li>
+                        ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
+
+            {/* Notes */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-200">
+                Notes for card holder
+              </label>
+              <textarea
+                className="w-full min-h-[70px] rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/70"
+                placeholder="Eg: Need delivery before 5 Dec, please keep me updated if the price drops."
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </div>
+
+            {/* Error */}
+            {error && (
+              <p className="text-[11px] text-red-400 border border-red-800/60 bg-red-950/40 rounded-xl px-3 py-2">
+                {error}
+              </p>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <p className="text-[10px] text-neutral-500">
+                This is a Phase-1 closed demo. Payments and KYC are handled
+                manually by Runesse outside the app.
+              </p>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="text-xs rounded-lg border border-emerald-500/70 bg-emerald-500/10 px-4 py-2 font-medium text-emerald-200 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                className="text-xs rounded-lg border border-emerald-600/70 bg-emerald-600/10 px-4 py-1.5 font-medium text-emerald-200 hover:bg-emerald-600/20 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? "Creating…" : "Create request"}
               </button>

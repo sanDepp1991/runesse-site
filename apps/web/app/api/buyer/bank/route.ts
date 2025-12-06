@@ -30,11 +30,12 @@ export async function GET() {
   }
 }
 
-// POST: create or update buyer bank account
+// POST: create or update buyer's bank account
 export async function POST(req: NextRequest) {
   try {
     const { userEmail, role } = getDemoBuyerIdentity();
-    const body = await req.json().catch(() => ({}));
+
+    const body = await req.json();
 
     const accountHolderName = String(body.accountHolderName || "").trim();
     const accountNumber = String(body.accountNumber || "").trim();
@@ -48,13 +49,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Account holder name, account number and IFSC are required.",
+          error:
+            "Account holder name, account number and IFSC are required.",
         },
         { status: 400 },
       );
     }
-
-    // For now we do NOT validate IFSC format deeply here. That can be added later.
 
     const existing = await prisma.userBankAccount.findFirst({
       where: { userEmail, role },
@@ -70,7 +70,8 @@ export async function POST(req: NextRequest) {
           ifsc,
           bankName,
           branchName,
-          status: "PENDING", // reset to PENDING whenever user edits
+          // whenever user edits, push back to PENDING and clear old verification
+          status: "PENDING",
           verificationMethod: null,
           lastVerifiedAt: null,
         },
@@ -86,6 +87,8 @@ export async function POST(req: NextRequest) {
           bankName,
           branchName,
           status: "PENDING",
+          verificationMethod: null,
+          lastVerifiedAt: null,
         },
       });
     }

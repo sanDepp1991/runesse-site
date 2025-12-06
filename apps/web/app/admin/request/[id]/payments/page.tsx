@@ -3,12 +3,25 @@
 import React from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useAdminDeviceGuard } from "../../../useAdminDeviceGuard";
 
 type Params = {
   id: string;
 };
 
 export default function AdminPaymentsPage() {
+  const { checking } = useAdminDeviceGuard();
+
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
+        <p className="text-sm text-neutral-400">
+          Checking admin device trust…
+        </p>
+      </div>
+    );
+  }
+
   const params = useParams() as unknown as Params;
   const router = useRouter();
   const requestId = params.id;
@@ -17,26 +30,31 @@ export default function AdminPaymentsPage() {
   const [depAmount, setDepAmount] = React.useState("");
   const [depUtr, setDepUtr] = React.useState("");
   const [depConfirmedAt, setDepConfirmedAt] = React.useState("");
-  const [depSubmitting, setDepSubmitting] = React.useState(false);
   const [depError, setDepError] = React.useState<string | null>(null);
   const [depSuccess, setDepSuccess] = React.useState<string | null>(null);
+  const [depSubmitting, setDepSubmitting] = React.useState(false);
 
-  // Reimbursement form
+  // Reimbursement record form
   const [remAmount, setRemAmount] = React.useState("");
-  const [remMethod, setRemMethod] = React.useState("NEFT");
+  const [remMethod, setRemMethod] = React.useState("UPI");
   const [remUtr, setRemUtr] = React.useState("");
   const [remPaidAt, setRemPaidAt] = React.useState("");
-  const [remSubmitting, setRemSubmitting] = React.useState(false);
   const [remError, setRemError] = React.useState<string | null>(null);
   const [remSuccess, setRemSuccess] = React.useState<string | null>(null);
+  const [remSubmitting, setRemSubmitting] = React.useState(false);
 
   async function handleConfirmDeposit(e: React.FormEvent) {
     e.preventDefault();
     setDepError(null);
     setDepSuccess(null);
 
+    if (!requestId) {
+      setDepError("Missing request id.");
+      return;
+    }
+
     if (!depAmount || Number(depAmount) <= 0) {
-      setDepError("Enter a valid amount.");
+      setDepError("Enter a valid deposit amount.");
       return;
     }
 
@@ -71,9 +89,9 @@ export default function AdminPaymentsPage() {
 
       setDepSuccess("Deposit confirmation recorded in ledger.");
       setDepSubmitting(false);
-    } catch (err) {
-      console.error(err);
-      setDepError("Something went wrong.");
+    } catch (err: any) {
+      console.error("Deposit confirm error", err);
+      setDepError(err?.message || "Unexpected error confirming deposit.");
       setDepSubmitting(false);
     }
   }
@@ -83,8 +101,13 @@ export default function AdminPaymentsPage() {
     setRemError(null);
     setRemSuccess(null);
 
+    if (!requestId) {
+      setRemError("Missing request id.");
+      return;
+    }
+
     if (!remAmount || Number(remAmount) <= 0) {
-      setRemError("Enter a valid amount.");
+      setRemError("Enter a valid reimbursement amount.");
       return;
     }
 
@@ -120,205 +143,220 @@ export default function AdminPaymentsPage() {
 
       setRemSuccess("Reimbursement recorded in ledger.");
       setRemSubmitting(false);
-    } catch (err) {
-      console.error(err);
-      setRemError("Something went wrong.");
+    } catch (err: any) {
+      console.error("Reimbursement record error", err);
+      setRemError(err?.message || "Unexpected error recording reimbursement.");
       setRemSubmitting(false);
     }
   }
 
   return (
     <div className="min-h-screen bg-black text-neutral-100">
-      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
-        <button
-          type="button"
-          onClick={() => router.push(`/admin/request/${requestId}`)}
-          className="text-xs text-neutral-400 hover:text-neutral-100"
-        >
-          ← Back to request details
-        </button>
-
-        <div>
-          <h1 className="text-xl font-semibold text-neutral-50">
-            Payments for request
-          </h1>
-          <p className="mt-1 text-xs text-neutral-400">
-            Request ID:{" "}
-            <span className="font-mono text-[11px] text-neutral-300">
-              {requestId}
-            </span>
-          </p>
-          <p className="mt-2 text-xs text-neutral-500">
-            Use this screen to confirm buyer deposits into Runesse&apos;s
-            current account and to record reimbursements to cardholders. All
-            actions write ledger entries.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-          {/* Deposit confirmation */}
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4 sm:p-5 space-y-3">
-            <h2 className="text-sm font-medium text-neutral-100">
-              Confirm buyer deposit
-            </h2>
-            <p className="text-[11px] text-neutral-500">
-              Use this after you see the buyer&apos;s deposit in Runesse&apos;s
-              bank statement.
+      <header className="border-b border-neutral-900 bg-neutral-950/80 backdrop-blur">
+        <div className="mx-auto max-w-4xl px-4 py-3 flex items-center justify-between">
+          <div>
+            <p className="text-[11px] text-neutral-500 mb-0.5">
+              <Link
+                href="/admin/requests"
+                className="text-neutral-400 hover:text-neutral-100 hover:underline underline-offset-4"
+              >
+                Requests
+              </Link>{" "}
+              <span className="mx-1">/</span>
+              <Link
+                href={`/admin/request/${requestId}`}
+                className="text-neutral-400 hover:text-neutral-100 hover:underline underline-offset-4"
+              >
+                {requestId}
+              </Link>{" "}
+              <span className="mx-1">/</span>
+              <span className="text-neutral-500">Payments</span>
             </p>
+            <h1 className="text-sm font-semibold text-neutral-50">
+              Payments & settlement
+            </h1>
+          </div>
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-100 hover:border-neutral-600"
+          >
+            Back
+          </button>
+        </div>
+      </header>
 
-            <form onSubmit={handleConfirmDeposit} className="space-y-3">
-              <div className="space-y-1">
-                <label className="text-xs text-neutral-200">Amount (₹)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={depAmount}
-                  onChange={(e) => setDepAmount(e.target.value)}
-                  className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-xs outline-none focus:border-emerald-500"
-                  placeholder="90000"
-                />
-              </div>
+      <main className="mx-auto max-w-4xl px-4 py-4 space-y-4">
+        {/* Deposit confirmation */}
+        <section className="rounded-2xl border border-neutral-900 bg-neutral-950/80 p-4">
+          <h2 className="text-xs font-semibold text-neutral-50 mb-1">
+            Buyer deposit confirmation
+          </h2>
+          <p className="text-[11px] text-neutral-500 mb-3">
+            Confirm that the buyer&apos;s deposit has reached Runesse&apos;s
+            current account (Phase-1 manual flow).
+          </p>
 
-              <div className="space-y-1">
-                <label className="text-xs text-neutral-200">
-                  UTR / reference (optional)
-                </label>
-                <input
-                  type="text"
-                  value={depUtr}
-                  onChange={(e) => setDepUtr(e.target.value)}
-                  className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-xs outline-none focus:border-emerald-500"
-                  placeholder="Bank / UPI reference"
-                />
-              </div>
+          {depError && (
+            <div className="mb-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
+              {depError}
+            </div>
+          )}
+          {depSuccess && (
+            <div className="mb-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-200">
+              {depSuccess}
+            </div>
+          )}
 
-              <div className="space-y-1">
-                <label className="text-xs text-neutral-200">
-                  When did you see the deposit?
-                </label>
-                <input
-                  type="datetime-local"
-                  value={depConfirmedAt}
-                  onChange={(e) => setDepConfirmedAt(e.target.value)}
-                  className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-xs outline-none focus:border-emerald-500"
-                />
-              </div>
+          <form
+            onSubmit={handleConfirmDeposit}
+            className="grid gap-3 md:grid-cols-2 text-[11px]"
+          >
+            <div className="space-y-1">
+              <label className="block text-neutral-400">Amount received</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={depAmount}
+                onChange={(e) => setDepAmount(e.target.value)}
+                className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-100 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+                placeholder="e.g. 10000"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-neutral-400">UTR / reference</label>
+              <input
+                type="text"
+                value={depUtr}
+                onChange={(e) => setDepUtr(e.target.value)}
+                className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-100 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+                placeholder="Optional UTR / reference"
+              />
+            </div>
+            <div className="space-y-1 md:col-span-2">
+              <label className="block text-neutral-400">
+                Deposit seen in bank at
+              </label>
+              <input
+                type="datetime-local"
+                value={depConfirmedAt}
+                onChange={(e) => setDepConfirmedAt(e.target.value)}
+                className="w-full md:w-1/2 rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-100 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+              />
+            </div>
 
-              {depError && (
-                <p className="text-[10px] text-red-300 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2">
-                  {depError}
-                </p>
-              )}
-              {depSuccess && (
-                <p className="text-[10px] text-emerald-300 bg-emerald-950/40 border border-emerald-900 rounded-lg px-3 py-2">
-                  {depSuccess}
-                </p>
-              )}
-
+            <div className="md:col-span-2 flex items-center justify-between mt-1">
+              <p className="text-[10px] text-neutral-500">
+                This will create a <strong>BUYER_DEPOSIT_CONFIRMED</strong>{" "}
+                style ledger entry for this request.
+              </p>
               <button
                 type="submit"
                 disabled={depSubmitting}
-                className="w-full rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-neutral-700 text-xs font-medium py-2"
+                className="rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {depSubmitting ? "Saving…" : "Confirm deposit"}
+                {depSubmitting ? "Confirming…" : "Confirm deposit"}
               </button>
-            </form>
-          </div>
+            </div>
+          </form>
+        </section>
 
-          {/* Reimbursement */}
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4 sm:p-5 space-y-3">
-            <h2 className="text-sm font-medium text-neutral-100">
-              Record reimbursement to cardholder
-            </h2>
-            <p className="text-[11px] text-neutral-500">
-              Use this after you send money back to the cardholder&apos;s bank
-              account.
-            </p>
+        {/* Reimbursement record */}
+        <section className="rounded-2xl border border-neutral-900 bg-neutral-950/80 p-4">
+          <h2 className="text-xs font-semibold text-neutral-50 mb-1">
+            Cardholder reimbursement
+          </h2>
+          <p className="text-[11px] text-neutral-500 mb-3">
+            Record the amount reimbursed to the cardholder from Runesse&apos;s
+            account. This links the payout to the buyer&apos;s deposit in the
+            ledger.
+          </p>
 
-            <form onSubmit={handleRecordReimbursement} className="space-y-3">
-              <div className="space-y-1">
-                <label className="text-xs text-neutral-200">Amount (₹)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={remAmount}
-                  onChange={(e) => setRemAmount(e.target.value)}
-                  className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-xs outline-none focus:border-emerald-500"
-                  placeholder="90000"
-                />
-              </div>
+          {remError && (
+            <div className="mb-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
+              {remError}
+            </div>
+          )}
+          {remSuccess && (
+            <div className="mb-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-200">
+              {remSuccess}
+            </div>
+          )}
 
-              <div className="space-y-1">
-                <label className="text-xs text-neutral-200">
-                  Method (NEFT / IMPS / UPI / etc.)
-                </label>
-                <select
-                  value={remMethod}
-                  onChange={(e) => setRemMethod(e.target.value)}
-                  className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-xs outline-none focus:border-emerald-500"
-                >
-                  <option value="NEFT">NEFT</option>
-                  <option value="IMPS">IMPS</option>
-                  <option value="UPI">UPI</option>
-                  <option value="RTGS">RTGS</option>
-                  <option value="OTHER">Other</option>
-                </select>
-              </div>
+          <form
+            onSubmit={handleRecordReimbursement}
+            className="grid gap-3 md:grid-cols-2 text-[11px]"
+          >
+            <div className="space-y-1">
+              <label className="block text-neutral-400">
+                Reimbursement amount
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={remAmount}
+                onChange={(e) => setRemAmount(e.target.value)}
+                className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-100 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+                placeholder="e.g. 9500"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-neutral-400">Method</label>
+              <select
+                value={remMethod}
+                onChange={(e) => setRemMethod(e.target.value)}
+                className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-100 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+              >
+                <option value="UPI">UPI</option>
+                <option value="NEFT">NEFT</option>
+                <option value="RTGS">RTGS</option>
+                <option value="IMPS">IMPS</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="block text-neutral-400">
+                UTR / payout reference
+              </label>
+              <input
+                type="text"
+                value={remUtr}
+                onChange={(e) => setRemUtr(e.target.value)}
+                className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-100 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+                placeholder="Optional UTR / reference"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-neutral-400">
+                Reimbursement sent at
+              </label>
+              <input
+                type="datetime-local"
+                value={remPaidAt}
+                onChange={(e) => setRemPaidAt(e.target.value)}
+                className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-100 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+              />
+            </div>
 
-              <div className="space-y-1">
-                <label className="text-xs text-neutral-200">
-                  UTR / reference (optional)
-                </label>
-                <input
-                  type="text"
-                  value={remUtr}
-                  onChange={(e) => setRemUtr(e.target.value)}
-                  className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-xs outline-none focus:border-emerald-500"
-                  placeholder="Bank / UPI reference"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs text-neutral-200">
-                  When did you pay the cardholder?
-                </label>
-                <input
-                  type="datetime-local"
-                  value={remPaidAt}
-                  onChange={(e) => setRemPaidAt(e.target.value)}
-                  className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-xs outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              {remError && (
-                <p className="text-[10px] text-red-300 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2">
-                  {remError}
-                </p>
-              )}
-              {remSuccess && (
-                <p className="text-[10px] text-emerald-300 bg-emerald-950/40 border border-emerald-900 rounded-lg px-3 py-2">
-                  {remSuccess}
-                </p>
-              )}
-
+            <div className="md:col-span-2 flex items-center justify-between mt-1">
+              <p className="text-[10px] text-neutral-500">
+                This will create a{" "}
+                <strong>CARDHOLDER_REIMBURSEMENT_CREATED</strong> style ledger
+                entry for this request.
+              </p>
               <button
                 type="submit"
                 disabled={remSubmitting}
-                className="w-full rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-neutral-700 text-xs font-medium py-2"
+                className="rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {remSubmitting ? "Saving…" : "Record reimbursement"}
+                {remSubmitting ? "Recording…" : "Record reimbursement"}
               </button>
-            </form>
-          </div>
-        </div>
-
-        <p className="text-[11px] text-neutral-500">
-          All actions on this screen are logged in the ledger and visible on the
-          audit trail in the request details page.
-        </p>
-      </div>
+            </div>
+          </form>
+        </section>
+      </main>
     </div>
   );
 }

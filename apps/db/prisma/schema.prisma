@@ -244,6 +244,12 @@ enum UserRole {
   BOTH
 }
 
+enum PanStatus {
+  PENDING
+  VERIFIED
+  FAILED
+}
+
 model User {
   id                String            @id @default(uuid())
   email             String            @unique
@@ -252,6 +258,12 @@ model User {
   trustedDeviceHash String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
+
+  // PAN KYC fields
+  panMasked     String?
+  panStatus     PanStatus @default(PENDING)
+  panVerifiedAt DateTime?
+  panName       String?
 
   AuditLog        AuditLog[]
   BuyerRequest    BuyerRequest[]
@@ -359,6 +371,25 @@ model Request {
 
   @@index([status, buyerEmail])
   @@index([matchedCardId])
+
+  offerPercent        Float? @default(0)
+  futureBenefitPercent Float? @default(0)
+}
+
+// --- Runesse: Admin device trust (for admin dashboard access) ---
+
+model AdminDevice {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  adminEmail  String   // e.g. "admin@demo.runesse" for Phase-1
+  deviceId    String   // random ID stored in secure cookie
+  label       String?  // "Sandeep Laptop", "Office PC" etc.
+  lastSeenAt  DateTime @default(now())
+  isRevoked   Boolean  @default(false)
+
+  @@index([adminEmail, deviceId])
 }
 
 enum NewRequestStatus {

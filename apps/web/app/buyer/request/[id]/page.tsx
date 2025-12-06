@@ -3,6 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
+import { calculatePricing } from "../../../lib/pricing";
 
 type RequestStatus = "PENDING" | "MATCHED" | "COMPLETED" | "CANCELLED" | string;
 
@@ -15,25 +16,25 @@ function StatusBadge({ status }: { status: RequestStatus }) {
 
   if (label === "PENDING") {
     border = "border-amber-500/40";
-    bg = "bg-amber-500/10";
-    text = "text-amber-300";
+    bg = "bg-amber-950/40";
+    text = "text-amber-200";
   } else if (label === "MATCHED") {
     border = "border-sky-500/40";
-    bg = "bg-sky-500/10";
-    text = "text-sky-300";
+    bg = "bg-sky-950/40";
+    text = "text-sky-200";
   } else if (label === "COMPLETED") {
     border = "border-emerald-500/40";
-    bg = "bg-emerald-500/10";
-    text = "text-emerald-300";
+    bg = "bg-emerald-950/40";
+    text = "text-emerald-200";
   } else if (label === "CANCELLED") {
     border = "border-red-500/40";
-    bg = "bg-red-500/10";
-    text = "text-red-300";
+    bg = "bg-red-950/40";
+    text = "text-red-200";
   }
 
   return (
     <span
-      className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-medium ${border} ${bg} ${text}`}
+      className={`inline-flex items-center rounded-full border px-2.5 py-[3px] text-[10px] font-medium ${border} ${bg} ${text}`}
     >
       {label}
     </span>
@@ -73,51 +74,39 @@ function getProofUrl(request: any, proofType: ProofType): string | null {
   };
 
   for (const key of map[proofType]) {
-    if (request[key]) return request[key];
-  }
-
-  if (request.proofs && request.proofs[proofType]?.url) {
-    return request.proofs[proofType].url;
+    const val = (request as any)?.[key];
+    if (typeof val === "string" && val.trim().length > 0) {
+      return val;
+    }
   }
 
   return null;
 }
 
-function fileNameFromUrl(url?: string | null) {
-  if (!url) return "";
-  try {
-    const clean = url.split("?")[0];
-    return clean.split("/").pop() || clean;
-  } catch {
-    return url;
-  }
-}
+type ProofUploadSlotProps = {
+  requestId: string;
+  proofType: ProofType;
+  label: string;
+  description: string;
+  existingUrl?: string | null;
+  disabled?: boolean;
+  onUploaded?: (url: string | null) => void;
+  uploadEndpoint?: string;
+};
 
 function ProofUploadSlot({
   requestId,
   proofType,
   label,
   description,
-  disabled,
   existingUrl,
+  disabled,
   onUploaded,
-}: {
-  requestId: string;
-  proofType: ProofType;
-  label: string;
-  description: string;
-  disabled?: boolean;
-  existingUrl?: string | null;
-  onUploaded?: (url: string) => void;
-}) {
+  uploadEndpoint = "/api/buyer/proofs/upload",
+}: ProofUploadSlotProps) {
   const [uploading, setUploading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
-
-  const uploadEndpoint =
-    proofType.startsWith("buyer-")
-      ? "/api/buyer/proofs/upload"
-      : "/api/cardholder/proofs/upload";
 
   async function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -166,26 +155,33 @@ function ProofUploadSlot({
       </div>
 
       {existingUrl ? (
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-neutral-800 bg-neutral-950/60 px-2.5 py-2">
-          <div className="min-w-0">
-            <p className="text-neutral-200 truncate">
-              {fileNameFromUrl(existingUrl)}
-            </p>
-            <Link
-              href={existingUrl}
-              target="_blank"
-              className="text-[10px] text-sky-400 hover:text-sky-300"
-            >
-              View file ↗
-            </Link>
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-neutral-800 bg-neutral-900/80 px-2.5 py-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/10 border border-emerald-500/40 text-[11px] text-emerald-300">
+              ✔
+            </span>
+            <div className="min-w-0">
+              <p className="text-[11px] text-neutral-100 font-medium">
+                File uploaded
+              </p>
+              <p className="text-[10px] text-neutral-500 truncate">
+                <Link
+                  href={existingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2 decoration-neutral-600 hover:decoration-neutral-300"
+                >
+                  View / download proof
+                </Link>
+              </p>
+            </div>
           </div>
-
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={disabled || uploading}
-              className="rounded-lg border border-neutral-700 bg-neutral-950/70 px-2.5 py-1 text-[10px] text-neutral-200 hover:bg-neutral-900 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="rounded-lg border border-neutral-700 bg-neutral-900 hover:border-neutral-500 px-2.5 py-1 text-[10px] text-neutral-100 disabled:bg-neutral-900 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               Replace
             </button>
@@ -204,7 +200,7 @@ function ProofUploadSlot({
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={disabled || uploading}
-          className="w-full rounded-lg border border-neutral-800 bg-neutral-950/70 px-3 py-2 text-[11px] text-neutral-200 hover:bg-neutral-900 disabled:opacity-60 disabled:cursor-not-allowed"
+          className="flex h-9 w-full items-center justify-center rounded-lg border border-dashed border-neutral-700 bg-neutral-900/40 text-[11px] text-neutral-300 hover:border-neutral-500 hover:text-neutral-50 disabled:bg-neutral-900 disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {uploading ? "Uploading…" : "Upload file"}
         </button>
@@ -224,21 +220,12 @@ function ProofUploadSlot({
 }
 
 export default function BuyerRequestDetailsPage() {
-  const params = useParams() as Record<string, string | string[]>;
+  const params = useParams();
   const pathname = usePathname();
+  const id = params?.id as string | undefined;
 
-  const rawFromParams = (params && (params as any).id) || null;
-  const idFromParams = Array.isArray(rawFromParams)
-    ? rawFromParams[0]
-    : rawFromParams;
-
-  const segments = pathname?.split("/").filter(Boolean) ?? [];
-  const lastSegment = segments[segments.length - 1] || null;
-
-  const id = (idFromParams || lastSegment) as string | null;
-
-  const [loading, setLoading] = React.useState(true);
   const [item, setItem] = React.useState<any | null>(null);
+  const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
   const [cancelLoading, setCancelLoading] = React.useState(false);
@@ -278,31 +265,31 @@ export default function BuyerRequestDetailsPage() {
     load();
   }, [id]);
 
-  async function handleCancelRequest() {
-    if (!item) return;
-    if (!window.confirm("Do you really want to cancel this request?")) return;
+  async function handleCancel() {
+    if (!item?.id) return;
 
     setCancelError(null);
     setCancelLoading(true);
 
     try {
-      const res = await fetch("/api/buyer/requests/cancel", {
+      const res = await fetch("/api/admin/requests/status", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           requestId: item.id,
-          reason: "Cancelled by buyer from UI",
+          status: "CANCELLED",
+          reason: "Buyer cancelled from buyer workspace (Phase-1).",
         }),
       });
 
       const data = await res.json().catch(() => null);
 
       if (!res.ok || !data?.ok) {
+        console.error("Cancel error:", data?.error || res.statusText);
         setCancelError(
-          data?.error ||
-            "Could not cancel the request. It may already be matched or completed."
+          data?.error || "Could not cancel the request. Please try again."
         );
         setCancelLoading(false);
         return;
@@ -345,6 +332,42 @@ export default function BuyerRequestDetailsPage() {
   }
 
   const request = item;
+
+  const rawCheckoutPrice =
+    typeof request.checkoutPrice === "number"
+      ? request.checkoutPrice
+      : request.checkoutPrice != null
+      ? Number(request.checkoutPrice)
+      : null;
+
+  const offerPercent =
+    typeof request.offerPercent === "number"
+      ? request.offerPercent
+      : request.offerPercent != null
+      ? Number(request.offerPercent) || 0
+      : 0;
+
+  const futureBenefitPercent =
+    typeof request.futureBenefitPercent === "number"
+      ? request.futureBenefitPercent
+      : request.futureBenefitPercent != null
+      ? Number(request.futureBenefitPercent) || 0
+      : 0;
+
+  const hasPricing =
+    rawCheckoutPrice != null &&
+    !Number.isNaN(rawCheckoutPrice) &&
+    rawCheckoutPrice > 0;
+
+  const pricing = hasPricing
+    ? calculatePricing({
+        checkoutPrice: rawCheckoutPrice as number,
+        offerPercent,
+        futureBenefitPercent,
+        runesseCommissionPercent: 10, // 10% of total benefit for Phase-1
+      })
+    : null;
+
   const status = ((request?.status as string) || "PENDING")
     .toUpperCase() as RequestStatus;
 
@@ -362,78 +385,110 @@ export default function BuyerRequestDetailsPage() {
   const buyerUploadsLocked = status !== "PENDING";
   const readOnlyAfterComplete = status === "COMPLETED";
 
+  const isCancellable =
+    status === "PENDING" || status === "MATCHED" || status === "COMPLETED";
+
   return (
     <div className="min-h-screen bg-black text-neutral-100">
-      <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {/* Top bar */}
-        <div className="flex items-center justify-between gap-4 mb-6">
-          <Link
-            href="/buyer"
-            className="inline-flex items-center text-xs sm:text-sm text-neutral-400 hover:text-neutral-100 transition-colors"
-          >
-            <span className="mr-1 text-lg">←</span>
-            Back to my requests
-          </Link>
+      <div className="border-b border-neutral-900 bg-gradient-to-b from-black to-neutral-950/60">
+        <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-3.5 sm:py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <Link
+                href="/buyer"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-neutral-800 bg-neutral-950 text-neutral-400 hover:text-neutral-50 hover:border-neutral-600"
+                aria-label="Back to buyer dashboard"
+              >
+                ←
+              </Link>
+              <div className="min-w-0">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-500">
+                  Buyer workspace
+                </p>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-sm sm:text-base font-medium text-neutral-50 truncate">
+                    Request details
+                  </h1>
+                  <StatusBadge status={status} />
+                </div>
+                <p className="mt-0.5 text-[11px] text-neutral-500 truncate">
+                  {request.productName || "No product name specified"}
+                </p>
+              </div>
+            </div>
 
-          <StatusBadge status={status} />
-        </div>
-
-        {/* Header */}
-        <div className="mb-4">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-neutral-500 mb-2">
-            BUYER • REQUEST DETAILS
-          </p>
-          <h1 className="text-xl sm:text-2xl font-semibold text-neutral-50">
-            {request.productName || "Request"}
-          </h1>
-
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
-            {createdAt && (
-              <span>
-                Created on{" "}
-                {createdAt.toLocaleString("en-IN", {
-                  day: "2-digit",
-                  month: "short",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
+            {isCancellable && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  disabled={cancelLoading || readOnlyAfterComplete}
+                  className="inline-flex items-center justify-center rounded-lg border border-neutral-800 bg-neutral-950 px-2.5 py-1.5 text-[11px] font-medium text-neutral-200 hover:border-neutral-500 hover:bg-neutral-900 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {cancelLoading ? "Cancelling…" : "Cancel request"}
+                </button>
+              </div>
             )}
-            <span className="hidden sm:inline text-neutral-700">•</span>
-            <span className="break-all text-neutral-600">
-              Request ID: {request.id}
-            </span>
           </div>
 
-          {request.matchedCardholderEmail && (
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-neutral-300">
-              <span>
-                Cardholder:{" "}
-                <span className="font-medium">
-                  {request.matchedCardholderEmail}
+          {/* Meta row */}
+          <div className="mt-3 flex flex-wrap items-center gap-2.5 text-[11px] text-neutral-500">
+            {createdAt && (
+              <div className="flex items-center gap-1.5">
+                <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-neutral-800 bg-neutral-950">
+                  ⏱
                 </span>
-              </span>
-              {matchedAt && (
-                <>
-                  <span className="hidden sm:inline text-neutral-700">•</span>
-                  <span className="text-neutral-400">
-                    Matched on{" "}
-                    {matchedAt.toLocaleString("en-IN", {
-                      day: "2-digit",
-                      month: "short",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
+                <span>
+                  Created{" "}
+                  <span className="text-neutral-300">
+                    {createdAt.toLocaleString("en-IN", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
                     })}
                   </span>
-                </>
-              )}
-            </div>
-          )}
-        </div>
+                </span>
+              </div>
+            )}
 
-        {/* Layout */}
+            {matchedAt && (
+              <div className="flex items-center gap-1.5">
+                <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-neutral-800 bg-neutral-950">
+                  🤝
+                </span>
+                <span>
+                  Matched{" "}
+                  <span className="text-neutral-300">
+                    {matchedAt.toLocaleString("en-IN", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </span>
+                </span>
+              </div>
+            )}
+
+            {completedAt && (
+              <div className="flex items-center gap-1.5">
+                <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-neutral-800 bg-neutral-950">
+                  ✅
+                </span>
+                <span>
+                  Marked completed{" "}
+                  <span className="text-neutral-300">
+                    {completedAt.toLocaleString("en-IN", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </span>
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-6 sm:py-7">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           {/* Left */}
           <div className="lg:col-span-2 space-y-4 sm:space-y-5">
@@ -483,6 +538,59 @@ export default function BuyerRequestDetailsPage() {
               </div>
             </div>
 
+            {/* Pricing summary */}
+            {pricing && (
+              <div className="rounded-2xl border border-neutral-800 bg-neutral-950/60 p-4 sm:p-5">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <div>
+                    <p className="text-xs font-medium text-neutral-400 mb-1.5">
+                      Pricing summary
+                    </p>
+                    <p className="text-[11px] text-neutral-500">
+                      Based on the checkout price, card offer and a 10% Runesse
+                      commission on the total benefit.
+                    </p>
+                  </div>
+                </div>
+
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
+                  <div>
+                    <dt className="text-neutral-500">Checkout price</dt>
+                    <dd className="font-semibold text-neutral-100">
+                      ₹{pricing.cardholderPayNow.toLocaleString("en-IN")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-neutral-500">Total benefit</dt>
+                    <dd className="font-semibold text-emerald-300">
+                      ₹{pricing.totalBenefit.toLocaleString("en-IN")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-neutral-500">Runesse commission</dt>
+                    <dd className="font-semibold text-amber-300">
+                      ₹{pricing.runesseCommission.toLocaleString("en-IN")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-neutral-500">Your net saving</dt>
+                    <dd className="font-semibold text-emerald-300">
+                      ₹{pricing.buyerNetSaving.toLocaleString("en-IN")}
+                    </dd>
+                  </div>
+                </dl>
+
+                <div className="mt-3 border-t border-neutral-800/80 pt-2">
+                  <p className="text-[11px] text-neutral-500 mb-1">
+                    Suggested amount to deposit to Runesse
+                  </p>
+                  <p className="text-sm font-semibold text-neutral-50">
+                    ₹{pricing.suggestedBuyerDeposit.toLocaleString("en-IN")}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Buyer uploads */}
             <div className="rounded-2xl border border-neutral-800 bg-neutral-950/60 p-4 sm:p-5">
               <p className="text-xs font-medium text-neutral-400 mb-2">
@@ -498,7 +606,7 @@ export default function BuyerRequestDetailsPage() {
                   requestId={request.id}
                   proofType="buyer-checkout"
                   label="Checkout screenshot"
-                  description="Final checkout page with total, offer, taxes, delivery."
+                  description="Final checkout page showing total amount and card offers."
                   disabled={buyerUploadsLocked}
                   existingUrl={buyerCheckoutUrl}
                   onUploaded={(url) =>
@@ -558,78 +666,44 @@ export default function BuyerRequestDetailsPage() {
             </div>
           </div>
 
-          {/* Right */}
+          {/* Right column */}
           <div className="space-y-4 sm:space-y-5">
             <div className="rounded-2xl border border-neutral-800 bg-neutral-950/60 p-4 sm:p-5">
-              <p className="text-xs font-medium text-neutral-400 mb-2">
-                Status (buyer)
+              <p className="text-xs font-medium text-neutral-400 mb-1.5">
+                What happens next?
               </p>
-              <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 px-3 py-2.5 text-xs text-neutral-200 flex items-center justify-between">
-                <span>Current status</span>
-                <StatusBadge status={status} />
-              </div>
+              <ol className="mt-1 space-y-1.5 text-[11px] text-neutral-300">
+                <li>
+                  1. Upload your checkout and product screenshots so we can
+                  verify the request.
+                </li>
+                <li>
+                  2. A cardholder will take this request and upload their proof
+                  of payment.
+                </li>
+                <li>
+                  3. Once verified, you will record your deposit to Runesse and
+                  the admin will mark this request as completed.
+                </li>
+              </ol>
 
-              {completedAt && (
-                <p className="mt-2 text-[11px] text-neutral-500">
-                  Completed on{" "}
-                  {completedAt.toLocaleString("en-IN", {
-                    day: "2-digit",
-                    month: "short",
-                    year: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+              <div className="mt-3 pt-3 border-t border-neutral-900/70">
+                <p className="text-[11px] text-neutral-500 mb-1">
+                  Need to adjust something?
                 </p>
-              )}
-
-              {status === "CANCELLED" && (
-                <p className="mt-2 text-[11px] text-red-300">
-                  This request has been cancelled.
+                <p className="text-[11px] text-neutral-400">
+                  You can cancel this request while it is still PENDING or
+                  MATCHED. Once completed, it becomes read-only.
                 </p>
-              )}
 
-              {status === "PENDING" && (
-                <div className="mt-3 space-y-1">
-                  <button
-                    type="button"
-                    onClick={handleCancelRequest}
-                    disabled={cancelLoading}
-                    className="w-full rounded-lg border border-red-600/60 bg-red-950/40 px-3 py-1.5 text-[11px] font-medium text-red-200 hover:bg-red-900/60 disabled:opacity-60 disabled:cursor-not-allowed"
+                <div className="mt-3">
+                  <Link
+                    href={`/buyer/request/${request.id}/deposit`}
+                    className="inline-flex items-center rounded-lg border border-emerald-500/50 bg-emerald-950/20 px-3 py-1.5 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/10"
                   >
-                    {cancelLoading ? "Cancelling…" : "Cancel this request"}
-                  </button>
-                  {cancelError && (
-                    <p className="text-[10px] text-red-300 mt-1">
-                      {cancelError}
-                    </p>
-                  )}
+                    Record deposit to Runesse
+                  </Link>
                 </div>
-              )}
-
-              {readOnlyAfterComplete && (
-                <p className="mt-2 text-[11px] text-neutral-500">
-                  This trade is closed. Proofs are read-only now.
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-dashed border-neutral-800 bg-neutral-950/40 p-4 sm:p-5">
-              <p className="text-xs font-medium text-neutral-400 mb-1">
-                Trust note
-              </p>
-              <p className="text-[11px] text-neutral-500">
-                Phase-1 (manual): Runesse verifies every transaction. You need to
-                reimburse only after invoice verification.
-              </p>
-
-              {/* Record deposit button */}
-              <div className="mt-3">
-                <Link
-                  href={`/buyer/request/${request.id}/deposit`}
-                  className="inline-flex items-center rounded-lg border border-emerald-500/60 px-3 py-1.5 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/10"
-                >
-                  Record deposit to Runesse
-                </Link>
               </div>
             </div>
           </div>

@@ -1,45 +1,42 @@
-import { NextResponse } from "next/server";
+// apps/web/app/api/buyer/requests/list/route.ts
+
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@runesse/db";
+import { getUserEmailFromRequest } from "../../../../lib/authServer";
 
-/**
- * Returns the list of BuyerRequests for our demo buyer
- * in the SAME SHAPE as the old /api/requests/list,
- * so the existing MyRequestsList UI continues to work.
- */
-export async function GET() {
+const BUYER_DEMO_EMAIL = "buyer@demo.runesse";
+
+export async function GET(req: NextRequest) {
   try {
-    // Phase-1: fixed demo buyer until auth is ready
-    const buyerEmail = "demo-buyer@runesse.local";
+    // 1️⃣ Try Supabase-authenticated email
+    let email = await getUserEmailFromRequest(req);
 
-    const user = await prisma.user.findUnique({
-      where: { email: buyerEmail },
-    });
-
-    if (!user) {
-      return NextResponse.json({ ok: true, requests: [] });
+    // 2️⃣ Fallback to demo email (keeps old behaviour for testing / no login)
+    if (!email) {
+      email = BUYER_DEMO_EMAIL;
     }
 
-    const buyerRequests = await prisma.buyerRequest.findMany({
-      where: { buyerId: user.id },
-      orderBy: { createdAt: "desc" },
+    const items = await prisma.request.findMany({
+      where: {
+        buyerEmail: email,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
     });
 
-    // Map BuyerRequest -> shape expected by MyRequestsList
-    const requests = buyerRequests.map((r) => ({
-      id: r.id,
-      productName: null, // BuyerRequest doesn't store name yet
-      productLink: r.productUrl,
-      checkoutPrice: Number(r.checkoutPrice as any),
-      status: r.status,
-      createdAt: r.createdAt,
-    }));
-
-    return NextResponse.json({ ok: true, requests });
-  } catch (error) {
-    console.error("Error listing buyer requests:", error);
     return NextResponse.json(
-      { ok: false, error: "Failed to load requests" },
-      { status: 500 }
+      {
+        ok: true,
+        items,
+      },
+      { status: 200 },
+    );
+  } catch (err) {
+    console.error("[BUYER_REQUESTS_LIST_ERROR]", err);
+    return NextResponse.json(
+      { ok: false, error: "Failed to load buyer requests" },
+      { status: 500 },
     );
   }
 }

@@ -1,32 +1,30 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   PrismaClient,
   LedgerEventType,
   LedgerScope,
 } from "@prisma/client";
 import { recordLedgerEntry } from "@runesse/db/src/ledger";
+import { getUserEmailFromRequest } from "../../lib/authServer";
 
 const prisma = new PrismaClient();
 
 // POST /api/requests
-export async function POST(request: Request) {
+export async function POST(req: NextRequest) {
   console.log("🚀 /api/requests POST triggered (web)");
 
   try {
-    const body = await request.json();
+    const body = await req.json();
 
-    const {
-      buyerEmail,
-      productLink,
-      productName,
-      checkoutPrice,
-      notes,
-    } = body ?? {};
+    let { buyerEmail, productLink, productName, checkoutPrice, notes } = body;
 
-    // -------- Basic validation (same spirit as your old code) --------
-    if (!buyerEmail || typeof buyerEmail !== "string") {
+    // Prefer Supabase-authenticated email over whatever comes from body
+    const authEmail = await getUserEmailFromRequest(req);
+    const effectiveBuyerEmail = authEmail || buyerEmail;
+
+    if (!effectiveBuyerEmail || typeof effectiveBuyerEmail !== "string") {
       return NextResponse.json(
-        { error: "buyerEmail is required." },
+        { error: "buyerEmail is required (login missing?)" },
         { status: 400 }
       );
     }
@@ -57,7 +55,7 @@ export async function POST(request: Request) {
       // 1) Create the original Request row (Phase-0 model)
       const reqRow = await tx.request.create({
         data: {
-          buyerEmail,
+          buyerEmail: effectiveBuyerEmail,
           productLink,
           productName: productName || null,
           checkoutPrice: parsedPrice,
@@ -71,10 +69,9 @@ export async function POST(request: Request) {
         scope: LedgerScope.USER_TRANSACTION,
         referenceType: "REQUEST",
         referenceId: reqRow.id,
-        // we don’t have buyerId here, just email → keep buyerId null and store email in meta
-        description: "Buyer created a new Request (Phase-0 model)",
+        description: "Buyer created a new request",
         meta: {
-          buyerEmail,
+          buyerEmail: effectiveBuyerEmail,
           productLink,
           productName: productName || null,
           checkoutPrice: parsedPrice,
