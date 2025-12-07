@@ -22,7 +22,6 @@ interface RequestItem {
 
 function statusPillClasses(status: RequestStatus) {
   const s = (status || "PENDING").toUpperCase();
-
   if (s === "COMPLETED") {
     return "bg-emerald-500/15 text-emerald-300 border-emerald-500/40";
   }
@@ -39,7 +38,6 @@ export default function CardholderDashboardPage() {
   const [inbox, setInbox] = useState<RequestItem[]>([]);
   const [myRequests, setMyRequests] = useState<RequestItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [acceptingId, setAcceptingId] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -60,8 +58,8 @@ export default function CardholderDashboardPage() {
 
         const data = await res.json();
 
-        if (res.ok && data.ok) {
-          setInbox(data.inboxRequests || []);
+        if (data?.ok) {
+          setInbox(data.inbox || []);
           setMyRequests(data.myRequests || []);
         } else {
           console.error("Failed to load cardholder inbox:", data);
@@ -82,51 +80,6 @@ export default function CardholderDashboardPage() {
     return d.toLocaleString();
   };
 
-  const handleAccept = async (requestId: string) => {
-    try {
-      setAcceptingId(requestId);
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token ?? null;
-
-      const res = await fetch("/api/cardholder/requests/accept", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ requestId }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.ok) {
-        console.error("Accept request failed:", data);
-        return;
-      }
-
-      const updated: RequestItem = data.request;
-
-      // Move from inbox → myRequests
-      setInbox((prev) => prev.filter((r) => r.id !== requestId));
-      setMyRequests((prev) => {
-        const existingIndex = prev.findIndex((r) => r.id === requestId);
-        if (existingIndex >= 0) {
-          const clone = [...prev];
-          clone[existingIndex] = updated;
-          return clone;
-        }
-        return [updated, ...prev];
-      });
-    } catch (err) {
-      console.error("Accept request error:", err);
-    } finally {
-      setAcceptingId(null);
-    }
-  };
-
   return (
     <div className="px-4 py-6 sm:px-8">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -138,31 +91,37 @@ export default function CardholderDashboardPage() {
             See available buyer requests and manage the ones you&apos;ve taken.
           </p>
         </div>
-        <Link
-          href="/cardholder/saved-cards"
-          className="hidden rounded-full bg-neutral-50 px-4 py-2 text-sm font-medium text-black hover:bg-white sm:inline-flex"
-        >
-          Manage cards
-        </Link>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href="/cardholder/cards"
+            className="rounded-full border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:border-neutral-500 hover:bg-neutral-900"
+          >
+            Manage cards
+          </Link>
+        </div>
       </div>
 
-      {/* PAN KYC banner */}
+      {/* KYC banner */}
       <KycBanner role="CARDHOLDER" kycPath="/cardholder/kyc" />
 
-      {/* Inbox */}
-      <div className="mt-4 rounded-2xl border border-neutral-800 bg-black/40 p-4">
+      {/* Available requests */}
+      <div className="mt-6 rounded-2xl border border-neutral-800 bg-black/40 p-4">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-medium text-neutral-200">
             Available Requests
           </h2>
-          {loading && (
-            <span className="text-xs text-neutral-500">Loading…</span>
-          )}
         </div>
 
-        {inbox.length === 0 && !loading && (
+        {loading && (
           <p className="text-sm text-neutral-500">
-            No open requests available right now.
+            Loading available requests…
+          </p>
+        )}
+
+        {!loading && inbox.length === 0 && (
+          <p className="text-sm text-neutral-500">
+            No new requests are available right now. Check back soon.
           </p>
         )}
 
@@ -213,13 +172,12 @@ export default function CardholderDashboardPage() {
                         : "-"}
                     </td>
                     <td className="py-2 pr-0 align-top text-right text-xs">
-                      <button
-                        onClick={() => handleAccept(r.id)}
-                        disabled={acceptingId === r.id}
-                        className="rounded-full bg-neutral-50 px-3 py-1.5 text-[11px] font-medium text-black hover:bg-white disabled:opacity-60"
+                      <Link
+                        href={`/cardholder/request/${r.id}`}
+                        className="text-sky-400 hover:underline"
                       >
-                        {acceptingId === r.id ? "Accepting…" : "I can take this"}
-                      </button>
+                        View details →
+                      </Link>
                     </td>
                   </tr>
                 ))}
@@ -289,12 +247,11 @@ export default function CardholderDashboardPage() {
                     </td>
                     <td className="py-2 pr-4 align-top">
                       <span
-                        className={
-                          "inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium " +
-                          statusPillClasses(r.status || "PENDING")
-                        }
+                        className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${statusPillClasses(
+                          r.status || "PENDING",
+                        )}`}
                       >
-                        {(r.status || "PENDING").toString()}
+                        {r.status || "PENDING"}
                       </span>
                     </td>
                     <td className="py-2 pr-4 align-top text-[11px] text-neutral-400">

@@ -107,10 +107,7 @@ const LandingPage: React.FC = () => {
         <div className="text-xl font-semibold tracking-widest">RUNESSE</div>
 
         <nav className="flex items-center gap-4 text-sm">
-          <Link
-            href="/auth/signin"
-            className="text-sm mr-2 hover:underline"
-          >
+          <Link href="/auth/signin" className="text-sm mr-2 hover:underline">
             Sign in
           </Link>
           <Link

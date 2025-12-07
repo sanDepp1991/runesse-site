@@ -1,6 +1,6 @@
 // apps/web/app/api/admin/requests/[id]/ledger/route.ts
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@runesse/db";
 
 type RouteParams = {
@@ -10,48 +10,49 @@ type RouteParams = {
 };
 
 export async function GET(
-  req: Request,
-  context: { params: RouteParams }
+  req: NextRequest,
+  context: { params: Promise<RouteParams> }
 ) {
   try {
-    // 1) Try params.id or params.requestId
-    let requestId =
-      context.params?.id || context.params?.requestId || "";
+    // 1) Unwrap params (Next.js 15: params is a Promise)
+    const params = await context.params;
 
-    // 2) Fallback: parse from URL in case folder name is different
+    // 2) Try id / requestId from params
+    let requestId = params.id ?? params.requestId ?? "";
+
+    // 3) Fallback: parse from URL in case folder / param name changes
     if (!requestId) {
       const url = new URL(req.url);
-      const parts = url.pathname.split("/").filter(Boolean);
-      // .../api/admin/requests/<id>/ledger
-      const idx = parts.indexOf("requests");
-      if (idx !== -1 && parts[idx + 1]) {
-        requestId = parts[idx + 1];
+      const segments = url.pathname.split("/").filter(Boolean);
+      const idx = segments.indexOf("requests");
+      if (idx >= 0 && segments[idx + 1]) {
+        requestId = segments[idx + 1];
       }
     }
 
-    if (!requestId || typeof requestId !== "string") {
+    if (!requestId) {
       return NextResponse.json(
         { ok: false, error: "Missing request id" },
         { status: 400 }
       );
     }
 
+    // 4) Fetch ledger entries linked to this request
     const items = await prisma.ledgerEntry.findMany({
       where: {
         OR: [
-          // Events directly tied to the Request
+          // Directly linked to the Request
           {
             referenceType: "REQUEST",
             referenceId: requestId,
           },
-          // Buyer / cardholder proof uploads where meta.requestId = this request
+          // Linked via Transaction whose meta.transaction.requestId matches
           {
-            referenceType: "PROOF_UPLOAD",
-            // JSON path filter – TS needs a little help here
+            referenceType: "TRANSACTION",
             meta: {
-              path: ["requestId"],
+              path: ["transaction", "requestId"],
               equals: requestId,
-            } as any,
+            },
           },
         ],
       },

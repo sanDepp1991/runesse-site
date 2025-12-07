@@ -83,7 +83,7 @@ model Transaction {
   paymentRef     String?
   escrowStatus   String?
   createdAt      DateTime      @default(now())
-  updatedAt      DateTime
+  updatedAt      DateTime      @updatedAt
 
   AuditLog       AuditLog[]
   ProofUpload    ProofUpload[]
@@ -287,23 +287,23 @@ model UserProfile {
 }
 
 model UserBankAccount {
-  id                String            @id @default(uuid())
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  id                 String            @id @default(uuid())
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
   // Who this account belongs to
-  userEmail         String
-  role              UserRole          // BUYER / CARDHOLDER / BOTH
+  userEmail          String
+  role               UserRole          // BUYER / CARDHOLDER / BOTH
 
   // Bank account details
-  accountHolderName String
-  accountNumber     String
-  ifsc              String
-  bankName          String?
-  branchName        String?
+  accountHolderName  String
+  accountNumber      String
+  ifsc               String
+  bankName           String?
+  branchName         String?
 
-  status            BankAccountStatus @default(PENDING)
-  verificationMethod String?          // e.g. "PENNY_DROP", "MANUAL"
+  status             BankAccountStatus @default(PENDING)
+  verificationMethod String?           // e.g. "PENNY_DROP", "MANUAL"
   lastVerifiedAt     DateTime?
 
   @@index([userEmail, role])
@@ -337,7 +337,7 @@ model SavedCard {
   @@index([cardholderEmail, bin, last4])
 }
 
-// --- Runesse: Simple buyer requests (Phase 0) ---
+// --- Runesse: Simple buyer requests (Phase 0 / Phase 1) ---
 
 model Request {
   id                         String           @id @default(cuid())
@@ -353,6 +353,11 @@ model Request {
   matchedCardId              String?
   matchedCard                SavedCard?       @relation("SavedCardRequests", fields: [matchedCardId], references: [id])
 
+  // Buyer’s requested card details from UI
+  requestedIssuer            String?          @db.Text   // e.g. "HDFC Bank"
+  requestedNetwork           String?          @db.Text   // e.g. "VISA"
+  requestedCardLabel         String?          @db.Text   // e.g. "Regalia First Credit Card"
+
   // buyer
   buyerEmail                 String
 
@@ -365,14 +370,14 @@ model Request {
   // workflow status
   status                     NewRequestStatus @default(PENDING)
 
-  // ---- NEW FIELDS ----
+  // Cardholder who actually took the request (for history / Phase-1)
   matchedCardholderEmail     String?          @db.VarChar @map("matchedCardholderEmail")
   matchedAt                  DateTime?
 
   @@index([status, buyerEmail])
   @@index([matchedCardId])
 
-  offerPercent        Float? @default(0)
+  offerPercent         Float? @default(0)
   futureBenefitPercent Float? @default(0)
 }
 
