@@ -26,48 +26,93 @@ const ALLOWED_HOSTS = [
   "www.tatacliq.com",
 ];
 
-function extractProductName(html: string): string | null {
-  // Try og:title
-  const ogMatch = html.match(
-    /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["'][^>]*>/i
-  );
-  if (ogMatch?.[1]) return ogMatch[1].trim();
+function cleanTitle(raw: string): string {
+  let s = raw.trim();
 
-  // Try <title>
+  // Remove typical ecommerce suffixes
+  s = s.replace(/\s*\|.*$/i, "");
+  s = s.replace(/\s*-\s*Buy.*$/i, "");
+  s = s.replace(/\s*Online.*$/i, "");
+  s = s.replace(/\s*@.*$/i, "");
+
+  return s.trim();
+}
+
+function extractProductName(html: string): string | null {
+  // 1) og:title
+  const ogMatch = html.match(
+    /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i,
+  );
+  if (ogMatch?.[1]) {
+    return cleanTitle(ogMatch[1]);
+  }
+
+  // 2) name="title"
+  const nameTitleMatch = html.match(
+    /<meta[^>]+name=["']title["'][^>]+content=["']([^"']+)["']/i,
+  );
+  if (nameTitleMatch?.[1]) {
+    return cleanTitle(nameTitleMatch[1]);
+  }
+
+  // 3) <title>...</title>
   const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  if (titleMatch?.[1]) return titleMatch[1].trim();
+  if (titleMatch?.[1]) {
+    return cleanTitle(titleMatch[1]);
+  }
 
   return null;
 }
 
-function extractPrice(html: string): number | null {
-  // Scan for ₹ / Rs patterns
-  const candidates: number[] = [];
+function parseRupees(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const cleaned = value.replace(/[^0-9]/g, "");
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
 
-  const rupeeRegex = /(?:₹|Rs\.?\s?)(\d[\d,]*)/gim;
+function extractPrice(html: string, hostname: string): number | null {
+  // Host-specific patterns first
+
+  // Amazon: try priceblock ids and "a-offscreen"
+  if (hostname.includes("amazon")) {
+    const m1 = html.match(
+      /id=["']priceblock_[^"']+["'][^>]*>\s*₹\s*([\d,]+)/i,
+    );
+    if (m1?.[1]) return parseRupees(m1[1]);
+
+    const m2 = html.match(
+      /class=["'][^"']*a-offscreen[^"']*["'][^>]*>\s*₹\s*([\d,]+)/i,
+    );
+    if (m2?.[1]) return parseRupees(m2[1]);
+  }
+
+  // Flipkart: ._30jeq3._16Jk6d
+  if (hostname.includes("flipkart")) {
+    const m = html.match(
+      /class=["'][^"']*30jeq3[^"']*["'][^>]*>\s*₹\s*([\d,]+)/i,
+    );
+    if (m?.[1]) return parseRupees(m[1]);
+  }
+
+  // Ajio, Myntra, TataCliq – simple ₹ pattern as fallback
+  const regex = /₹\s*([\d,]+)/g;
+  let best: number | null = null;
   let match: RegExpExecArray | null;
 
-  while ((match = rupeeRegex.exec(html)) !== null) {
-    const raw = match[1].replace(/,/g, "");
-    const num = Number(raw);
-    if (!Number.isNaN(num) && num > 0) {
-      candidates.push(num);
+  while ((match = regex.exec(html)) !== null) {
+    const val = parseRupees(match[1]);
+    if (!val) continue;
+
+    // Heuristic: treat the *lowest* rupee value in the page as "offer price"
+    if (best == null || val < best) {
+      best = val;
     }
   }
 
-  if (!candidates.length) return null;
-
-  // Prefer "big" values (product price), ignore tiny things like ₹149, ₹199, etc.
-  const filtered = candidates.filter((n) => n >= 1000 && n <= 20000000);
-  if (filtered.length > 0) {
-    // Take the maximum as a simple heuristic for main product price
-    return Math.max(...filtered);
-  }
-
-  // Fallback: median-ish of all candidates
-  const sorted = [...candidates].sort((a, b) => a - b);
-  const midIndex = Math.floor(sorted.length / 2);
-  return sorted[midIndex] ?? sorted[0];
+  return best;
 }
 
 type OfferHints = {
@@ -79,207 +124,167 @@ type OfferHints = {
 };
 
 function extractOfferHints(html: string): OfferHints {
-  const lower = html.toLowerCase();
+  const candidateTexts = new Set<string>();
 
-  const hasNoCostEmi = lower.includes("no cost emi");
+  // ---- 1) Line-based scan for general offer/cashback/emi text ----
+  const rawLines = html.split(/[\r\n]+/);
+  for (let raw of rawLines) {
+    let s = raw.trim();
+    if (!s) continue;
 
-  const snippets: string[] = [];
-
-  function collectAround(keyword: string, radius = 180) {
-    let fromIndex = 0;
-    const lowerKeyword = keyword.toLowerCase();
-
-    while (true) {
-      const idx = lower.indexOf(lowerKeyword, fromIndex);
-      if (idx === -1) break;
-
-      const start = Math.max(0, idx - radius);
-      const end = Math.min(html.length, idx + lowerKeyword.length + radius);
-      const chunk = html.slice(start, end);
-
-      snippets.push(chunk);
-      fromIndex = idx + lowerKeyword.length;
-    }
-  }
-
-  [
-    "Bank Offer",
-    "Bank Offers",
-    "credit card offer",
-    "debit card offer",
-    "cashback",
-    "cash back",
-    "No Cost EMI",
-  ].forEach((k) => collectAround(k));
-
-  const lines: string[] = [];
-
-  for (const chunk of snippets) {
-    // remove tags first
-    const withoutTags = chunk.replace(/<[^>]+>/g, " ");
-    const collapsed = withoutTags.replace(/\s+/g, " ").trim();
-    if (!collapsed) continue;
-
-    const subLines = collapsed.split(/[.|•|▪|–|-]/);
-    for (let sub of subLines) {
-      let s = sub.trim();
-      if (!s) continue;
-
-      // 1) If this looks like JSON, try to keep only the "title":"..." part.
-      const titleMatch = s.match(/"title":"([^"]+)"/);
-      if (titleMatch?.[1]) {
-        s = titleMatch[1].trim(); // keep only the title text
-      }
-
-      // 2) If there is still an "id": segment, drop everything after it.
-      const idIdx = s.indexOf('"id":');
-      if (idIdx > 0) {
-        s = s.slice(0, idIdx).trim();
-      }
-
-      // Remove stray quotes
-      s = s.replace(/"+/g, "").trim();
-
-      // basic filters to avoid leftover JSON noise
-      if (!s) continue;
-      if (s.length < 15 || s.length > 160) continue;
-      if (/[<>]/.test(s)) continue;
-      if (/(width=|height=|class=|src=|\.png|\.jpg|\.svg)/i.test(s)) continue;
-      if (/[{}]/.test(s)) continue;
-      if (!/[a-zA-Z]/.test(s)) continue; // must contain letters
-      if (!s.includes(" ")) continue; // avoid weird tokens
-
-      lines.push(s);
-    }
-  }
-
-  const uniqueLines = Array.from(new Set(lines));
-
-  const bankOffers: string[] = [];
-  const cashbackOffers: string[] = [];
-
-  for (const line of uniqueLines) {
-    const l = line.toLowerCase();
+    const lower = s.toLowerCase();
     if (
-      l.includes("bank offer") ||
-      l.includes("bank offers") ||
-      l.includes("credit card") ||
-      l.includes("debit card")
+      !(
+        lower.includes("offer") ||
+        lower.includes("discount") ||
+        lower.includes("cashback") ||
+        lower.includes("cash back") ||
+        lower.includes("emi") ||
+        lower.includes("no cost")
+      )
     ) {
-      bankOffers.push(line);
-    } else if (l.includes("cashback") || l.includes("cash back")) {
-      cashbackOffers.push(line);
+      continue;
+    }
+
+    // Strip tags, scripts, styles
+    s = s.replace(/<script[\s\S]*?<\/script>/gi, "");
+    s = s.replace(/<style[\s\S]*?<\/style>/gi, "");
+    s = s.replace(/<[^>]+>/g, "");
+    s = s.replace(/\s+/g, " ").trim();
+
+    if (!s) continue;
+    if (s.length < 15 || s.length > 250) continue;
+
+    candidateTexts.add(s);
+  }
+
+  // ---- 2) Explicitly grab "Bank Offer ..." from Flipkart/Amazon style HTML ----
+  const bankOfferRegexes: RegExp[] = [
+    /(Bank Offer[^<]{0,220})/gi,
+    /(bank offer[^<]{0,220})/gi,
+    /(Bank Offers[^<]{0,220})/gi,
+    /(bank offers[^<]{0,220})/gi,
+    /(Instant Discount[^<]{0,220})/gi,
+  ];
+
+  for (const re of bankOfferRegexes) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html)) !== null) {
+      let snippet = m[1] || m[0] || "";
+      snippet = snippet.replace(/<script[\s\S]*?<\/script>/gi, "");
+      snippet = snippet.replace(/<style[\s\S]*?<\/style>/gi, "");
+      snippet = snippet.replace(/<[^>]+>/g, "");
+      snippet = snippet.replace(/\s+/g, " ").trim();
+
+      if (!snippet) continue;
+      if (snippet.length < 15 || snippet.length > 250) continue;
+
+      candidateTexts.add(snippet);
     }
   }
 
-  const percentRegex = /(\d{1,2})\s*%/g;
-  let suggestedOfferPercent: number | null = null;
+  const bankOffersSet = new Set<string>();
+  const cashbackOffersSet = new Set<string>();
+  let hasNoCostEmi = false;
 
-  function scanForPercent(text: string) {
-    let m: RegExpExecArray | null;
-    while ((m = percentRegex.exec(text)) !== null) {
-      const val = Number(m[1]);
-      if (Number.isNaN(val)) continue;
-      if (val <= 0 || val > 80) continue;
-      if (suggestedOfferPercent == null || val > suggestedOfferPercent) {
-        suggestedOfferPercent = val;
+  let bestPercent = 0;
+  let bestOfferText: string | null = null;
+
+  for (const line of candidateTexts) {
+    const lower = line.toLowerCase();
+
+    if (lower.includes("no cost emi")) {
+      hasNoCostEmi = true;
+    }
+
+    // Bank / card / instant discount
+    if (
+      lower.includes("bank offer") ||
+      lower.includes("bank offers") ||
+      lower.includes("credit card") ||
+      lower.includes("debit card") ||
+      lower.includes("instant discount") ||
+      lower.includes("prepaid") ||
+      lower.includes("card offer")
+    ) {
+      bankOffersSet.add(line);
+    }
+
+    // Cashback
+    if (lower.includes("cashback") || lower.includes("cash back")) {
+      cashbackOffersSet.add(line);
+    }
+
+    // Find % discount/cashback in this line
+    const percentMatch = lower.match(/(\d+)\s*%/);
+    if (percentMatch?.[1]) {
+      const pct = Number(percentMatch[1]);
+      if (pct > bestPercent) {
+        bestPercent = pct;
+        bestOfferText = line;
       }
     }
-  }
-
-  for (const line of [...bankOffers, ...cashbackOffers]) {
-    scanForPercent(line);
-  }
-
-  // Try to find a "best offer" text (line containing the highest %)
-  let bestOfferText: string | null = null;
-  if (suggestedOfferPercent != null) {
-    const percentPattern = new RegExp(
-      `\\b${suggestedOfferPercent}\\s*%`,
-      "i"
-    );
-    const allLines = [...bankOffers, ...cashbackOffers];
-    const found = allLines.find((l) => percentPattern.test(l));
-    if (found) {
-      bestOfferText = found;
-    }
-  }
-  if (!bestOfferText) {
-    // fallback: first bank offer, or first cashback offer
-    bestOfferText =
-      bankOffers[0] ?? cashbackOffers[0] ?? null;
   }
 
   return {
-    bankOffers,
-    cashbackOffers,
+    bankOffers: Array.from(bankOffersSet),
+    cashbackOffers: Array.from(cashbackOffersSet),
     hasNoCostEmi,
-    suggestedOfferPercent,
+    suggestedOfferPercent: bestPercent > 0 ? bestPercent : null,
     bestOfferText,
   };
 }
 
+// ---- Main route handler ----
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => null);
-    const url = body?.url as string | undefined;
+    const { url } = await req.json();
 
-    if (!url) {
+    if (!url || typeof url !== "string") {
       return NextResponse.json(
-        { ok: false, error: "Missing product URL." },
-        { status: 400 }
+        { ok: false, error: "Invalid URL" },
+        { status: 400 },
       );
     }
 
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      return NextResponse.json(
-        { ok: false, error: "Invalid product URL." },
-        { status: 400 }
-      );
-    }
+    const parsedUrl = new URL(url);
+    const hostname = parsedUrl.hostname.toLowerCase();
 
-    const hostname = parsed.hostname.toLowerCase();
     if (!ALLOWED_HOSTS.includes(hostname)) {
       return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "This marketplace is not yet supported. Please use Amazon, Flipkart, Myntra, Ajio or Tata CLiQ links.",
-        },
-        { status: 400 }
+        { ok: false, error: "Host not supported yet by Runesse parser." },
+        { status: 400 },
       );
     }
 
     const res = await fetch(url, {
-      method: "GET",
       headers: {
+        // Pretend to be a real browser
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36",
-        "Accept-Language": "en-IN,en;q=0.9",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+          "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
       },
+      cache: "no-store",
     });
 
     if (!res.ok) {
-      console.error("Failed to fetch product page:", res.status, res.statusText);
       return NextResponse.json(
-        { ok: false, error: "Could not fetch product page." },
-        { status: 502 }
+        { ok: false, error: "Failed to fetch product page." },
+        { status: res.status },
       );
     }
 
     const html = await res.text();
 
     const productName = extractProductName(html);
-    const price = extractPrice(html);
+    const price = extractPrice(html, hostname);
     const offerHints = extractOfferHints(html);
 
     return NextResponse.json({
       ok: true,
-      productName: productName || null,
-      price,
+      productTitle: productName || null,
+      productPrice: price,
       bankOffers: offerHints.bankOffers,
       cashbackOffers: offerHints.cashbackOffers,
       hasNoCostEmi: offerHints.hasNoCostEmi,
@@ -290,7 +295,7 @@ export async function POST(req: NextRequest) {
     console.error("Error in /api/product/parse:", error);
     return NextResponse.json(
       { ok: false, error: "Could not analyse product link." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

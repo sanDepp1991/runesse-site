@@ -14,14 +14,15 @@ interface RequestItem {
   productLink?: string | null;
   checkoutPrice?: number | null;
   status?: RequestStatus;
-  createdAt?: string | Date | null;
+  buyerEmail?: string | null;
   matchedAt?: string | Date | null;
   completedAt?: string | Date | null;
-  buyerEmail?: string | null;
+  createdAt?: string | Date | null;
 }
 
 function statusPillClasses(status: RequestStatus) {
   const s = (status || "PENDING").toUpperCase();
+
   if (s === "COMPLETED") {
     return "bg-emerald-500/15 text-emerald-300 border-emerald-500/40";
   }
@@ -38,13 +39,16 @@ export default function CardholderDashboardPage() {
   const [inbox, setInbox] = useState<RequestItem[]>([]);
   const [myRequests, setMyRequests] = useState<RequestItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
 
+  // Load cardholder inbox + taken requests
   useEffect(() => {
     const load = async () => {
       try {
         const {
           data: { session },
         } = await supabase.auth.getSession();
+
         const token = session?.access_token ?? null;
 
         const res = await fetch("/api/cardholder/requests/inbox", {
@@ -58,9 +62,9 @@ export default function CardholderDashboardPage() {
 
         const data = await res.json();
 
-        if (data?.ok) {
-          setInbox(data.inbox || []);
-          setMyRequests(data.myRequests || []);
+        if (res.ok && data?.ok) {
+          setInbox(Array.isArray(data.inbox) ? data.inbox : []);
+          setMyRequests(Array.isArray(data.myRequests) ? data.myRequests : []);
         } else {
           console.error("Failed to load cardholder inbox:", data);
         }
@@ -74,10 +78,29 @@ export default function CardholderDashboardPage() {
     load();
   }, []);
 
+  // Load signed-in email
+  useEffect(() => {
+    const loadUser = async () => {
+      const { data, error } = await supabase.auth.getUser();
+      if (!error && data.user?.email) {
+        setUserEmail(data.user.email);
+      } else {
+        setUserEmail(null);
+      }
+    };
+
+    void loadUser();
+  }, []);
+
   const formatDate = (value?: string | Date | null) => {
     if (!value) return "-";
     const d = typeof value === "string" ? new Date(value) : value;
     return d.toLocaleString();
+  };
+
+  const formatPrice = (value?: number | null) => {
+    if (value == null || Number.isNaN(value)) return "-";
+    return `₹${value.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
   };
 
   return (
@@ -90,16 +113,20 @@ export default function CardholderDashboardPage() {
           <p className="mt-1 text-sm text-neutral-400">
             See available buyer requests and manage the ones you&apos;ve taken.
           </p>
+          {userEmail && (
+            <p className="mt-1 text-[11px] text-neutral-500">
+              Signed in as{" "}
+              <span className="font-mono text-emerald-300">{userEmail}</span>
+            </p>
+          )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href="/cardholder/cards"
-            className="rounded-full border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:border-neutral-500 hover:bg-neutral-900"
-          >
-            Manage cards
-          </Link>
-        </div>
+        <Link
+          href="/cardholder/cards"
+          className="inline-flex items-center rounded-full bg-emerald-500 px-4 py-2 text-xs font-medium text-black shadow-lg shadow-emerald-500/40 transition hover:bg-emerald-400"
+        >
+          Manage my cards
+        </Link>
       </div>
 
       {/* KYC banner */}
@@ -121,7 +148,7 @@ export default function CardholderDashboardPage() {
 
         {!loading && inbox.length === 0 && (
           <p className="text-sm text-neutral-500">
-            No new requests are available right now. Check back soon.
+            There are no matching buyer requests for your cards right now.
           </p>
         )}
 
@@ -137,46 +164,43 @@ export default function CardholderDashboardPage() {
                   <th className="py-2 pr-4 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody>
-                {inbox.map((r) => (
-                  <tr
-                    key={r.id}
-                    className="border-b border-neutral-900/60 last:border-0 hover:bg-neutral-900/40"
-                  >
-                    <td className="py-2 pr-4 align-top text-[11px] text-neutral-400">
-                      {formatDate(r.createdAt)}
+              <tbody className="divide-y divide-neutral-900">
+                {inbox.map((item) => (
+                  <tr key={item.id}>
+                    <td className="py-2 pr-4 align-top text-neutral-400">
+                      {formatDate(item.createdAt)}
                     </td>
                     <td className="py-2 pr-4 align-top">
-                      <div className="flex flex-col gap-1">
-                        <div className="text-xs font-medium text-neutral-100">
-                          {r.productName || "Unnamed request"}
+                      <div className="max-w-[260px]">
+                        <div className="truncate text-xs font-medium text-neutral-100">
+                          {item.productName || "—"}
                         </div>
-                        {r.productLink && (
+                        {item.productLink && (
                           <a
-                            href={r.productLink}
+                            href={item.productLink}
                             target="_blank"
                             rel="noreferrer"
-                            className="max-w-xs truncate text-[11px] text-sky-400 hover:underline"
+                            className="mt-0.5 block truncate text-[11px] text-sky-400 hover:underline"
                           >
-                            {r.productLink}
+                            View product
                           </a>
                         )}
                       </div>
                     </td>
                     <td className="py-2 pr-4 align-top text-[11px] text-neutral-400">
-                      {r.buyerEmail || "-"}
+                      {item.buyerEmail || "—"}
                     </td>
-                    <td className="py-2 pr-4 align-top text-xs">
-                      {r.checkoutPrice != null
-                        ? `₹${r.checkoutPrice.toLocaleString("en-IN")}`
-                        : "-"}
+                    <td className="py-2 pr-4 align-top">
+                      <span className="text-xs font-medium">
+                        {formatPrice(item.checkoutPrice)}
+                      </span>
                     </td>
-                    <td className="py-2 pr-0 align-top text-right text-xs">
+                    <td className="py-2 pr-4 align-top text-right">
                       <Link
-                        href={`/cardholder/request/${r.id}`}
-                        className="text-sky-400 hover:underline"
+                        href={`/cardholder/request/${item.id}`}
+                        className="text-xs font-medium text-emerald-400 hover:underline"
                       >
-                        View details →
+                        View &amp; take →
                       </Link>
                     </td>
                   </tr>
@@ -187,7 +211,7 @@ export default function CardholderDashboardPage() {
         )}
       </div>
 
-      {/* My requests */}
+      {/* My taken requests */}
       <div className="mt-6 rounded-2xl border border-neutral-800 bg-black/40 p-4">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-medium text-neutral-200">
@@ -195,7 +219,13 @@ export default function CardholderDashboardPage() {
           </h2>
         </div>
 
-        {myRequests.length === 0 && (
+        {loading && (
+          <p className="text-sm text-neutral-500">
+            Loading your taken requests…
+          </p>
+        )}
+
+        {!loading && myRequests.length === 0 && (
           <p className="text-sm text-neutral-500">
             You haven&apos;t accepted any requests yet.
           </p>
@@ -208,64 +238,56 @@ export default function CardholderDashboardPage() {
                 <tr>
                   <th className="py-2 pr-4">Created</th>
                   <th className="py-2 pr-4">Product</th>
+                  <th className="py-2 pr-4">Buyer</th>
                   <th className="py-2 pr-4">Price</th>
                   <th className="py-2 pr-4">Status</th>
-                  <th className="py-2 pr-4">Matched / Completed</th>
-                  <th className="py-2 pr-4 text-right">Actions</th>
+                  <th className="py-2 pr-4 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody>
-                {myRequests.map((r) => (
-                  <tr
-                    key={r.id}
-                    className="border-b border-neutral-900/60 last:border-0 hover:bg-neutral-900/40"
-                  >
-                    <td className="py-2 pr-4 align-top text-[11px] text-neutral-400">
-                      {formatDate(r.createdAt)}
+              <tbody className="divide-y divide-neutral-900">
+                {myRequests.map((item) => (
+                  <tr key={item.id}>
+                    <td className="py-2 pr-4 align-top text-neutral-400">
+                      {formatDate(item.createdAt)}
                     </td>
                     <td className="py-2 pr-4 align-top">
-                      <div className="flex flex-col gap-1">
-                        <div className="text-xs font-medium text-neutral-100">
-                          {r.productName || "Unnamed request"}
+                      <div className="max-w-[260px]">
+                        <div className="truncate text-xs font-medium text-neutral-100">
+                          {item.productName || "—"}
                         </div>
-                        {r.productLink && (
+                        {item.productLink && (
                           <a
-                            href={r.productLink}
+                            href={item.productLink}
                             target="_blank"
                             rel="noreferrer"
-                            className="max-w-xs truncate text-[11px] text-sky-400 hover:underline"
+                            className="mt-0.5 block truncate text-[11px] text-sky-400 hover:underline"
                           >
-                            {r.productLink}
+                            View product
                           </a>
                         )}
                       </div>
                     </td>
-                    <td className="py-2 pr-4 align-top text-xs">
-                      {r.checkoutPrice != null
-                        ? `₹${r.checkoutPrice.toLocaleString("en-IN")}`
-                        : "-"}
+                    <td className="py-2 pr-4 align-top text-[11px] text-neutral-400">
+                      {item.buyerEmail || "—"}
+                    </td>
+                    <td className="py-2 pr-4 align-top">
+                      <span className="text-xs font-medium">
+                        {formatPrice(item.checkoutPrice)}
+                      </span>
                     </td>
                     <td className="py-2 pr-4 align-top">
                       <span
-                        className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${statusPillClasses(
-                          r.status || "PENDING",
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${statusPillClasses(
+                          item.status || "PENDING",
                         )}`}
                       >
-                        {r.status || "PENDING"}
+                        {item.status || "PENDING"}
                       </span>
                     </td>
-                    <td className="py-2 pr-4 align-top text-[11px] text-neutral-400">
-                      {r.matchedAt && (
-                        <div>Matched: {formatDate(r.matchedAt)}</div>
-                      )}
-                      {r.completedAt && (
-                        <div>Completed: {formatDate(r.completedAt)}</div>
-                      )}
-                    </td>
-                    <td className="py-2 pr-0 align-top text-right text-xs">
+                    <td className="py-2 pr-4 align-top text-right">
                       <Link
-                        href={`/cardholder/request/${r.id}`}
-                        className="text-sky-400 hover:underline"
+                        href={`/cardholder/request/${item.id}`}
+                        className="text-xs font-medium text-emerald-400 hover:underline"
                       >
                         View details →
                       </Link>

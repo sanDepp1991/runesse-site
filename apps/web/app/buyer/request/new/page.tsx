@@ -79,13 +79,18 @@ export default function NewRequestPage() {
   const labelsForIssuerNet = Array.from(
     new Set(
       availableCards
-        .filter(
-          (c) => c.issuer === selectedIssuer && c.network === selectedNetwork,
-        )
+        .filter((c) => {
+          const issuer = (c.issuer || "").trim();
+          const network = (c.network || "").trim();
+          const selIssuer = selectedIssuer.trim();
+          const selNetwork = selectedNetwork.trim();
+          return issuer === selIssuer && network === selNetwork;
+        })
         .map((c) => c.label)
-        .filter((v): v is string => !!v),
+        .filter((v): v is string => !!v && v.trim().length > 0),
     ),
   );
+
 
   // Analyse product link via /api/product/parse
   const handleAnalyseLink = async () => {
@@ -223,10 +228,12 @@ export default function NewRequestPage() {
   };
 
   // For the "With / Without Runesse" block
+  // For the "With / Without Runesse" block
   const numericPrice =
     checkoutPrice && !Number.isNaN(Number(checkoutPrice))
       ? Number(checkoutPrice)
       : null;
+
   const discountPercent =
     analysis?.suggestedOfferPercent != null
       ? analysis.suggestedOfferPercent
@@ -236,9 +243,27 @@ export default function NewRequestPage() {
   let approxBenefit: number | null = null;
 
   if (numericPrice != null && discountPercent != null) {
-    approxBenefit = Math.round((numericPrice * discountPercent) / 100);
+    // Basic percentage benefit
+    let calculated = Math.round((numericPrice * discountPercent) / 100);
+
+    // Try to detect "up to ₹X / maximum ₹X / max ₹X" in the offer text
+    const offerText = analysis?.bestOfferText || "";
+    const capMatch = offerText.match(
+      /(upto|up to|maximum|max)\s*₹?\s*([\d,]+)/i
+    );
+
+    if (capMatch && capMatch[2]) {
+      const capRaw = capMatch[2].replace(/,/g, "");
+      const cap = Number(capRaw);
+      if (!Number.isNaN(cap) && cap > 0) {
+        calculated = Math.min(calculated, cap);
+      }
+    }
+
+    approxBenefit = calculated;
     approxWithRunesse = numericPrice - approxBenefit;
   }
+
 
   return (
     <div className="px-4 py-6 sm:px-8">

@@ -37,6 +37,7 @@ function statusPillClasses(status: RequestStatus) {
 export default function BuyerDashboardPage() {
   const [items, setItems] = useState<RequestItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
 
   useEffect(() => {
     const loadRequests = async () => {
@@ -72,6 +73,19 @@ export default function BuyerDashboardPage() {
     loadRequests();
   }, []);
 
+  useEffect(() => {
+    const loadUser = async () => {
+      const { data, error } = await supabase.auth.getUser();
+      if (!error && data.user?.email) {
+        setUserEmail(data.user.email);
+      } else {
+        setUserEmail(null);
+      }
+    };
+
+    void loadUser();
+  }, []);
+
   const formatDate = (value?: string | Date | null) => {
     if (!value) return "-";
     const d = typeof value === "string" ? new Date(value) : value;
@@ -88,6 +102,12 @@ export default function BuyerDashboardPage() {
           <p className="mt-1 text-sm text-neutral-400">
             View and manage your Runesse requests.
           </p>
+          {userEmail && (
+            <p className="mt-1 text-[11px] text-neutral-500">
+              Signed in as{" "}
+              <span className="font-mono text-emerald-300">{userEmail}</span>
+            </p>
+          )}
         </div>
         <Link
           href="/buyer/request/new"

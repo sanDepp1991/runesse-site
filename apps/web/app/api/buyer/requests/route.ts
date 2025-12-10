@@ -1,3 +1,4 @@
+// apps/web/app/api/buyer/requests/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import {
   PrismaClient,
@@ -13,9 +14,12 @@ const prisma = new PrismaClient();
 /**
  * This API:
  *  - Looks up (or creates) a User using buyerEmail
- *  - Creates a BuyerRequest
- *  - Writes a LedgerEntry with eventType = REQUEST_CREATED
+ *  - Creates a Request row (this is your buyer's request)
+ *  - Records a ledger entry for "REQUEST_CREATED"
+ *
+ * It returns the created Request.
  */
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -43,99 +47,78 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (
-      checkoutPrice === undefined ||
-      checkoutPrice === null ||
-      isNaN(Number(checkoutPrice))
-    ) {
-      return NextResponse.json(
-        { success: false, message: "checkoutPrice must be a number" },
-        { status: 400 }
-      );
-    }
+    const normalizedEmail = buyerEmail.trim().toLowerCase();
 
-    const checkoutPriceDecimal = new Prisma.Decimal(checkoutPrice);
-
-    // For Phase-1, treat statedBenefit and otherCharges as 0
-    const statedBenefitDecimal = new Prisma.Decimal(0);
-    const otherChargesDecimal = new Prisma.Decimal(0);
-
-    const buyerRequest = await prisma.$transaction(async (tx) => {
-      // 1) Find or create user by email
-      let user = await tx.user.findUnique({
-        where: { email: buyerEmail },
+    const created = await prisma.$transaction(async (tx) => {
+      // 1) Ensure we have a User row for the buyer
+      const buyerUser = await tx.user.upsert({
+        where: { email: normalizedEmail },
+        update: {},
+        create: {
+          email: normalizedEmail,
+          role: "BUYER",
+        },
       });
 
-      if (!user) {
-        user = await tx.user.create({
-          data: {
-            email: buyerEmail,
-            name: "Demo Buyer",
-            role: "BUYER",
-          },
-        });
-      }
-
-      // 2) Create BuyerRequest
-      const created = await tx.buyerRequest.create({
+      // 2) Create the request
+      const request = await tx.request.create({
         data: {
-          buyerId: user.id,
-          productUrl: productLink,
-          paymentLink: productLink, // placeholder until separate payment link exists
-          checkoutPrice: checkoutPriceDecimal,
-          statedBenefit: statedBenefitDecimal,
-          otherCharges: otherChargesDecimal,
-          status: RequestStatus.PENDING_ADMIN_APPROVAL,
-        },
-      });
-
-      // 3) Ledger entry
-      await recordLedgerEntry(tx, {
-        eventType: LedgerEventType.REQUEST_CREATED,
-        scope: LedgerScope.USER_TRANSACTION,
-        referenceType: "BUYER_REQUEST",
-        referenceId: created.id,
-        buyerId: user.id,
-        description: "Buyer created a new request",
-        meta: {
+          buyerEmail: normalizedEmail,
           productLink,
-          productName,
-          checkoutPrice: checkoutPriceDecimal.toString(),
+          productName: productName || null,
+          checkoutPrice: checkoutPrice
+            ? new Prisma.Decimal(checkoutPrice)
+            : null,
           notes: notes || null,
+          status: RequestStatus.PENDING,
+          offerPercent: null,
+          futureBenefitPercent: null,
         },
       });
 
-      return created;
+      // 3) Record ledger entry for REQUEST_CREATED
+      await recordLedgerEntry(tx, {
+        scope: LedgerScope.REQUEST,
+        eventType: LedgerEventType.REQUEST_CREATED,
+        side: null, // NEUTRAL in your schema is represented by null side for now
+        amount: null,
+        currency: "INR",
+        accountKey: null,
+
+        // ✅ IMPORTANT: tie this firmly to the Request row
+        referenceType: "REQUEST",
+        referenceId: request.id,
+
+        description: "Buyer created a new request",
+        buyerId: buyerUser.id,
+        cardholderId: null,
+        adminId: null,
+        meta: {
+          buyerEmail: normalizedEmail,
+          productLink,
+          productName: productName || null,
+          checkoutPrice: checkoutPrice ?? null,
+        },
+      });
+
+      return request;
     });
 
     return NextResponse.json(
       {
         success: true,
-        data: buyerRequest,
+        request: created,
       },
-      { status: 201 }
+      { status: 200 }
     );
-  } catch (error: any) {
-    console.error("Error creating buyer request:", error);
-
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError ||
-      error instanceof Prisma.PrismaClientValidationError
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Database error while creating request",
-          detail: error.message,
-        },
-        { status: 500 }
-      );
-    }
+  } catch (err: any) {
+    console.error("[BUYER_REQUEST_CREATE_ERROR]", err);
 
     return NextResponse.json(
       {
         success: false,
-        message: "Unexpected error while creating request",
+        message: "Failed to create request",
+        error: err?.message || "Unknown error",
       },
       { status: 500 }
     );

@@ -1,3 +1,4 @@
+// apps/web/app/buyer/request/[id]/page.tsx
 "use client";
 
 import React from "react";
@@ -265,6 +266,7 @@ export default function BuyerRequestDetailsPage() {
     load();
   }, [id]);
 
+  // 🔴 UPDATED: use buyer cancel API, which writes proper buyer-ledger events
   async function handleCancel() {
     if (!item?.id) return;
 
@@ -272,14 +274,13 @@ export default function BuyerRequestDetailsPage() {
     setCancelLoading(true);
 
     try {
-      const res = await fetch("/api/admin/requests/status", {
+      const res = await fetch("/api/buyer/requests/cancel", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           requestId: item.id,
-          status: "CANCELLED",
           reason: "Buyer cancelled from buyer workspace (Phase-1).",
         }),
       });
@@ -704,6 +705,10 @@ export default function BuyerRequestDetailsPage() {
                     Record deposit to Runesse
                   </Link>
                 </div>
+
+                {cancelError && (
+                  <p className="mt-3 text-[10px] text-red-300">{cancelError}</p>
+                )}
               </div>
             </div>
           </div>

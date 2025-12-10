@@ -1,8 +1,10 @@
+// apps/web/app/cardholder/request/[id]/page.tsx
 "use client";
 
 import React from "react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
+import { supabase } from "../../../lib/supabaseClient";
 
 type RequestStatus = "PENDING" | "MATCHED" | "COMPLETED" | "CANCELLED" | string;
 const DEMO_CARDHOLDER_EMAIL = "cardholder@demo.runesse";
@@ -160,16 +162,16 @@ function ProofUploadSlot({
   }
 
   return (
-    <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-3.5 text-[11px] space-y-2">
+    <div className="space-y-2 rounded-xl border border-neutral-800 bg-neutral-900/40 p-3.5 text-[11px]">
       <div>
         <p className="font-medium text-neutral-100">{label}</p>
-        <p className="text-neutral-400 mt-1">{description}</p>
+        <p className="mt-1 text-neutral-400">{description}</p>
       </div>
 
       {existingUrl ? (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-neutral-800 bg-neutral-950/60 px-2.5 py-2">
           <div className="min-w-0">
-            <p className="text-neutral-200 truncate">
+            <p className="truncate text-neutral-200">
               {fileNameFromUrl(existingUrl)}
             </p>
             <Link
@@ -181,19 +183,19 @@ function ProofUploadSlot({
             </Link>
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex shrink-0 items-center gap-1.5">
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={disabled || uploading}
-              className="rounded-lg border border-neutral-700 bg-neutral-950/70 px-2.5 py-1 text-[10px] text-neutral-200 hover:bg-neutral-900 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="rounded-lg border border-neutral-700 bg-neutral-950/70 px-2.5 py-1 text-[10px] text-neutral-200 hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Replace
             </button>
             <button
               type="button"
               disabled
-              className="rounded-lg border border-neutral-800 bg-neutral-950/80 px-2.5 py-1 text-[10px] text-neutral-600 cursor-not-allowed"
+              className="cursor-not-allowed rounded-lg border border-neutral-800 bg-neutral-950/80 px-2.5 py-1 text-[10px] text-neutral-600"
               title="Removal not enabled in Phase-1"
             >
               Remove
@@ -205,7 +207,7 @@ function ProofUploadSlot({
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={disabled || uploading}
-          className="w-full rounded-lg border border-neutral-800 bg-neutral-950/70 px-3 py-2 text-[11px] text-neutral-200 hover:bg-neutral-900 disabled:opacity-60 disabled:cursor-not-allowed"
+          className="w-full rounded-lg border border-neutral-800 bg-neutral-950/70 px-3 py-2 text-[11px] text-neutral-200 hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {uploading ? "Uploading…" : "Upload file"}
         </button>
@@ -238,17 +240,20 @@ export default function CardholderRequestDetailsPage() {
 
   const id = (idFromParams || lastSegment) as string | null;
 
-    const [loading, setLoading] = React.useState(true);
+  const [loading, setLoading] = React.useState(true);
   const [item, setItem] = React.useState<any | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const [takeLoading, setTakeLoading] = React.useState(false);
   const [takeError, setTakeError] = React.useState<string | null>(null);
 
-  // Card selection for "I can take this"
-  const [selectForRequestId, setSelectForRequestId] = React.useState<string | null>(null);
+  const [selectForRequestId, setSelectForRequestId] = React.useState<
+    string | null
+  >(null);
   const [savedCards, setSavedCards] = React.useState<any[] | null>(null);
-  const [selectedCardId, setSelectedCardId] = React.useState<string | null>(null);
+  const [selectedCardId, setSelectedCardId] = React.useState<string | null>(
+    null,
+  );
 
   const [cancelLoading, setCancelLoading] = React.useState(false);
   const [cancelError, setCancelError] = React.useState<string | null>(null);
@@ -291,36 +296,80 @@ export default function CardholderRequestDetailsPage() {
     if (!item) return;
 
     setTakeError(null);
-    setTakeLoading(false); // we only use takeLoading when confirming
+    setTakeLoading(true);
     setSelectedCardId(null);
     setSavedCards(null);
     setSelectForRequestId(item.id);
 
     try {
-      const res = await fetch("/api/cardholder/cards");
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token ?? null;
+
+      const res = await fetch("/api/cardholder/cards", {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
       const data = await res.json();
 
       if (!data?.ok) {
         throw new Error(data?.error || "Could not load your cards");
       }
 
-      setSavedCards(data.cards || []);
+      let cards: any[] = Array.isArray(data.cards) ? data.cards : [];
 
-      if (!data.cards || data.cards.length === 0) {
-        setTakeError(
-          "You do not have any saved cards yet. Please add a card in the 'Save my cards' page."
-        );
+      const requestedIssuer = item.requestedIssuer || null;
+      const requestedNetwork = item.requestedNetwork || null;
+
+      if (requestedIssuer || requestedNetwork) {
+        cards = cards.sort((a, b) => {
+          const aMatch =
+            (requestedIssuer &&
+              a.issuer &&
+              a.issuer.trim() === requestedIssuer.trim()
+              ? 1
+              : 0) +
+            (requestedNetwork &&
+              a.network &&
+              a.network.trim() === requestedNetwork.trim()
+              ? 1
+              : 0);
+
+          const bMatch =
+            (requestedIssuer &&
+              b.issuer &&
+              b.issuer.trim() === requestedIssuer.trim()
+              ? 1
+              : 0) +
+            (requestedNetwork &&
+              b.network &&
+              b.network.trim() === requestedNetwork.trim()
+              ? 1
+              : 0);
+
+          return bMatch - aMatch;
+        });
+      }
+
+      setSavedCards(cards);
+
+      if (cards.length > 0) {
+        setSelectedCardId(cards[0].id);
       }
     } catch (err: any) {
-      console.error(err);
+      console.error("Failed to load cards for taking request", err);
       setTakeError(
-        err?.message || "Failed to load your cards. Please try again."
+        err?.message || "Could not load your saved cards. Please try again.",
       );
-      setSavedCards([]);
+    } finally {
+      setTakeLoading(false);
     }
   }
 
-    async function confirmTakeRequestWithCard() {
+  async function confirmTakeRequestWithCard() {
     if (!item || !selectForRequestId || !selectedCardId) {
       setTakeError("Please choose a card.");
       return;
@@ -330,15 +379,20 @@ export default function CardholderRequestDetailsPage() {
       setTakeLoading(true);
       setTakeError(null);
 
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token ?? null;
+
       const res = await fetch("/api/cardholder/requests/take-with-card", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           requestId: item.id,
           savedCardId: selectedCardId,
-          cardholderEmail: DEMO_CARDHOLDER_EMAIL,
         }),
       });
 
@@ -347,11 +401,10 @@ export default function CardholderRequestDetailsPage() {
       if (!res.ok || !data?.ok) {
         throw new Error(
           data?.error ||
-            "Could not take this request. It may have been taken already."
+            "Could not take this request. It may have been taken already.",
         );
       }
 
-      // Update local state so UI changes to MATCHED
       setItem((prev: any) =>
         prev
           ? {
@@ -360,17 +413,15 @@ export default function CardholderRequestDetailsPage() {
               matchedAt: new Date().toISOString(),
               matchedCardId: selectedCardId,
             }
-          : prev
+          : prev,
       );
 
       setSelectForRequestId(null);
       setSelectedCardId(null);
       setSavedCards(null);
     } catch (err: any) {
-      console.error(err);
-      setTakeError(
-        err?.message || "Something went wrong. Please try again."
-      );
+      console.error("Error confirming take-with-card", err);
+      setTakeError(err?.message || "Could not take this request.");
     } finally {
       setTakeLoading(false);
     }
@@ -407,7 +458,7 @@ export default function CardholderRequestDetailsPage() {
       if (!res.ok || !data?.ok) {
         setCancelError(
           data?.error ||
-            "Could not cancel the request. It may not be in MATCHED status."
+            "Could not cancel the request. It may not be in MATCHED status.",
         );
         setCancelLoading(false);
         return;
@@ -427,7 +478,7 @@ export default function CardholderRequestDetailsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-black text-neutral-100">
         <p className="text-xs text-neutral-400">Loading request…</p>
       </div>
     );
@@ -435,9 +486,11 @@ export default function CardholderRequestDetailsPage() {
 
   if (error || !item) {
     return (
-      <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
-        <div className="text-center space-y-3 max-w-md">
-          <p className="text-sm text-neutral-300">{error || "Unknown error."}</p>
+      <div className="flex min-h-screen items-center justify-center bg-black text-neutral-100">
+        <div className="max-w-md space-y-3 text-center">
+          <p className="text-sm text-neutral-300">
+            {error || "Unknown error."}
+          </p>
           <Link
             href="/cardholder"
             className="text-xs text-sky-400 hover:text-sky-300"
@@ -469,12 +522,11 @@ export default function CardholderRequestDetailsPage() {
 
   return (
     <div className="min-h-screen bg-black text-neutral-100">
-      <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {/* Top bar */}
-        <div className="flex items-center justify-between gap-4 mb-6">
+      <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+        <div className="mb-6 flex items-center justify-between gap-4">
           <Link
             href="/cardholder"
-            className="inline-flex items-center text-xs sm:text-sm text-neutral-400 hover:text-neutral-100 transition-colors"
+            className="inline-flex items-center text-xs text-neutral-400 transition-colors hover:text-neutral-100 sm:text-sm"
           >
             <span className="mr-1 text-lg">←</span>
             Back to my workspace
@@ -483,12 +535,11 @@ export default function CardholderRequestDetailsPage() {
           <StatusBadge status={status} />
         </div>
 
-        {/* Header */}
         <div className="mb-4">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-neutral-500 mb-2">
+          <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-neutral-500">
             CARDHOLDER • REQUEST DETAILS
           </p>
-          <h1 className="text-xl sm:text-2xl font-semibold text-neutral-50">
+          <h1 className="text-xl font-semibold text-neutral-50 sm:text-2xl">
             {request.productName || "Request"}
           </h1>
 
@@ -505,7 +556,7 @@ export default function CardholderRequestDetailsPage() {
                 })}
               </span>
             )}
-            <span className="hidden sm:inline text-neutral-700">•</span>
+            <span className="hidden text-neutral-700 sm:inline">•</span>
             <span className="break-all text-neutral-600">
               Request ID: {request.id}
             </span>
@@ -514,7 +565,7 @@ export default function CardholderRequestDetailsPage() {
           {matchedAt && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-neutral-300">
               <span>This request is matched to your card</span>
-              <span className="hidden sm:inline text-neutral-700">•</span>
+              <span className="hidden text-neutral-700 sm:inline">•</span>
               <span className="text-neutral-400">
                 Matched on{" "}
                 {matchedAt.toLocaleString("en-IN", {
@@ -529,36 +580,33 @@ export default function CardholderRequestDetailsPage() {
           )}
         </div>
 
-        {/* Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-          {/* Left side */}
-          <div className="lg:col-span-2 space-y-4 sm:space-y-5">
-            {/* Product summary */}
+        <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
+          <div className="space-y-4 sm:space-y-5 lg:col-span-2">
             <div className="rounded-2xl border border-neutral-800 bg-neutral-950/60 p-4 sm:p-5">
-              <div className="flex items-start justify-between gap-3 mb-3">
+              <div className="mb-3 flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-medium text-neutral-400 mb-1">
+                  <p className="mb-1 text-xs font-medium text-neutral-400">
                     Product
                   </p>
-                  <p className="text-sm sm:text-base text-neutral-50">
+                  <p className="text-sm text-neutral-50 sm:text-base">
                     {request.productName || "Not specified"}
                   </p>
                 </div>
 
                 {request.checkoutPrice != null && (
                   <div className="text-right">
-                    <p className="text-xs text-neutral-500 mb-[2px]">
+                    <p className="mb-[2px] text-xs text-neutral-500">
                       Checkout price
                     </p>
-                    <p className="text-base sm:text-lg font-semibold text-neutral-50">
+                    <p className="text-base font-semibold text-neutral-50 sm:text-lg">
                       ₹{Number(request.checkoutPrice).toLocaleString("en-IN")}
                     </p>
                   </div>
                 )}
               </div>
 
-              <div className="mt-3 border-top border-neutral-800/80 pt-3">
-                <p className="text-xs font-medium text-neutral-400 mb-1.5">
+              <div className="mt-3 border-t border-neutral-800/80 pt-3">
+                <p className="mb-1.5 text-xs font-medium text-neutral-400">
                   Buyer&apos;s product link
                 </p>
                 {request.productLink ? (
@@ -566,7 +614,7 @@ export default function CardholderRequestDetailsPage() {
                     href={request.productLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center text-xs sm:text-sm text-sky-400 hover:text-sky-300 break-all"
+                    className="inline-flex items-center break-all text-xs text-sky-400 hover:text-sky-300 sm:text-sm"
                   >
                     {request.productLink}
                     <span className="ml-1 text-[11px]">↗</span>
@@ -579,13 +627,12 @@ export default function CardholderRequestDetailsPage() {
               </div>
             </div>
 
-            {/* Buyer proofs (read-only) */}
             <div className="rounded-2xl border border-neutral-800 bg-neutral-950/60 p-4 sm:p-5">
-              <p className="text-xs font-medium text-neutral-400 mb-2">
+              <p className="mb-2 text-xs font-medium text-neutral-400">
                 Buyer proofs (read-only)
               </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <ProofUploadSlot
                   requestId={request.id}
                   proofType="buyer-checkout"
@@ -605,18 +652,17 @@ export default function CardholderRequestDetailsPage() {
               </div>
             </div>
 
-            {/* Cardholder proofs */}
             <div className="rounded-2xl border border-neutral-800 bg-neutral-950/60 p-4 sm:p-5">
-              <p className="text-xs font-medium text-neutral-400 mb-2">
+              <p className="mb-2 text-xs font-medium text-neutral-400">
                 Your proofs & attachments
               </p>
-              <p className="text-[11px] text-neutral-500 mb-3">
+              <p className="mb-3 text-[11px] text-neutral-500">
                 Upload the final merchant invoice and your card transaction
                 proof. Uploads are enabled once you accept the request and it is
                 in MATCHED status.
               </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <ProofUploadSlot
                   requestId={request.id}
                   proofType="cardholder-invoice"
@@ -656,13 +702,12 @@ export default function CardholderRequestDetailsPage() {
             </div>
           </div>
 
-          {/* Right side */}
           <div className="space-y-4 sm:space-y-5">
             <div className="rounded-2xl border border-neutral-800 bg-neutral-950/60 p-4 sm:p-5">
-              <p className="text-xs font-medium text-neutral-400 mb-2">
+              <p className="mb-2 text-xs font-medium text-neutral-400">
                 Status (cardholder)
               </p>
-              <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 px-3 py-2.5 text-xs text-neutral-200 flex items-center justify-between">
+              <div className="flex items-center justify-between rounded-xl border border-neutral-800 bg-neutral-900/60 px-3 py-2.5 text-xs text-neutral-200">
                 <span>Current status</span>
                 <StatusBadge status={status} />
               </div>
@@ -686,36 +731,34 @@ export default function CardholderRequestDetailsPage() {
                 </p>
               )}
 
-              {/* I can take this (PENDING) */}
               {status === "PENDING" && (
                 <div className="mt-3 space-y-1">
                   <button
                     type="button"
                     onClick={handleTakeRequest}
                     disabled={takeLoading}
-                    className="w-full rounded-lg border border-emerald-600/70 bg-emerald-900/40 px-3 py-1.5 text-[11px] font-medium text-emerald-200 hover:bg-emerald-800/60 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full rounded-lg border border-emerald-600/70 bg-emerald-900/40 px-3 py-1.5 text-[11px] font-medium text-emerald-200 hover:bg-emerald-800/60 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {takeLoading ? "Taking…" : "I can take this"}
                   </button>
                   {takeError && (
-                    <p className="text-[10px] text-red-300 mt-1">{takeError}</p>
+                    <p className="mt-1 text-[10px] text-red-300">{takeError}</p>
                   )}
                 </div>
               )}
 
-              {/* Cancel (MATCHED) */}
               {status === "MATCHED" && (
                 <div className="mt-3 space-y-1">
                   <button
                     type="button"
                     onClick={handleCancelRequest}
                     disabled={cancelLoading}
-                    className="w-full rounded-lg border border-red-600/60 bg-red-950/40 px-3 py-1.5 text-[11px] font-medium text-red-200 hover:bg-red-900/60 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full rounded-lg border border-red-600/60 bg-red-950/40 px-3 py-1.5 text-[11px] font-medium text-red-200 hover:bg-red-900/60 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {cancelLoading ? "Cancelling…" : "Cancel this request"}
                   </button>
                   {cancelError && (
-                    <p className="text-[10px] text-red-300 mt-1">
+                    <p className="mt-1 text-[10px] text-red-300">
                       {cancelError}
                     </p>
                   )}
@@ -730,7 +773,7 @@ export default function CardholderRequestDetailsPage() {
             </div>
 
             <div className="rounded-2xl border border-dashed border-neutral-800 bg-neutral-950/40 p-4 sm:p-5">
-              <p className="text-xs font-medium text-neutral-400 mb-1">
+              <p className="mb-1 text-xs font-medium text-neutral-400">
                 Trust note
               </p>
               <p className="text-[11px] text-neutral-500">
@@ -740,78 +783,79 @@ export default function CardholderRequestDetailsPage() {
             </div>
           </div>
         </div>
-              {selectForRequestId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="w-full max-w-md rounded-2xl border border-neutral-800 bg-neutral-950 px-4 py-5">
-            <h2 className="text-sm font-semibold text-neutral-50">
-              Choose card for this request
-            </h2>
-            <p className="mt-1 text-xs text-neutral-400">
-              Select which saved card you will use to pay for this buyer&apos;s
-              order.
-            </p>
 
-            {takeError && (
-              <p className="mt-2 text-xs text-red-400">{takeError}</p>
-            )}
-
-            {!savedCards && !takeError && (
-              <p className="mt-3 text-xs text-neutral-400">
-                Loading your cards...
+        {selectForRequestId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="w-full max-w-md rounded-2xl border border-neutral-800 bg-neutral-950 px-4 py-5">
+              <h2 className="text-sm font-semibold text-neutral-50">
+                Choose card for this request
+              </h2>
+              <p className="mt-1 text-xs text-neutral-400">
+                Select which saved card you will use to pay for this
+                buyer&apos;s order.
               </p>
-            )}
 
-            {savedCards && savedCards.length > 0 && (
-              <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
-                {savedCards.map((card: any) => (
-                  <button
-                    key={card.id}
-                    type="button"
-                    onClick={() => setSelectedCardId(card.id)}
-                    className={[
-                      "w-full rounded-lg border px-3 py-2 text-left text-xs",
-                      selectedCardId === card.id
-                        ? "border-emerald-500 bg-emerald-500/10"
-                        : "border-neutral-700 bg-black/60 hover:border-neutral-500",
-                    ].join(" ")}
-                  >
-                    <div className="font-medium text-neutral-100">
-                      {card.label || `**** ${card.last4}`}
-                    </div>
-                    <div className="text-[11px] text-neutral-400">
-                      {[card.issuer, card.brand, card.network]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </div>
-                    <div className="text-[11px] text-neutral-500">
-                      BIN {card.bin} · **** {card.last4} ·{" "}
-                      {card.country || "IN"}
-                    </div>
-                  </button>
-                ))}
+              {takeError && (
+                <p className="mt-2 text-xs text-red-400">{takeError}</p>
+              )}
+
+              {!savedCards && !takeError && (
+                <p className="mt-3 text-xs text-neutral-400">
+                  Loading your cards...
+                </p>
+              )}
+
+              {savedCards && savedCards.length > 0 && (
+                <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+                  {savedCards.map((card: any) => (
+                    <button
+                      key={card.id}
+                      type="button"
+                      onClick={() => setSelectedCardId(card.id)}
+                      className={[
+                        "w-full rounded-lg border px-3 py-2 text-left text-xs",
+                        selectedCardId === card.id
+                          ? "border-emerald-500 bg-emerald-500/10"
+                          : "border-neutral-700 bg-black/60 hover:border-neutral-500",
+                      ].join(" ")}
+                    >
+                      <div className="font-medium text-neutral-100">
+                        {card.label || `**** ${card.last4}`}
+                      </div>
+                      <div className="text-[11px] text-neutral-400">
+                        {[card.issuer, card.brand, card.network]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </div>
+                      <div className="text-[11px] text-neutral-500">
+                        BIN {card.bin} · **** {card.last4} ·{" "}
+                        {card.country || "IN"}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeCardSelector}
+                  className="rounded-full border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmTakeRequestWithCard}
+                  disabled={takeLoading || !selectedCardId}
+                  className="rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 disabled:opacity-50"
+                >
+                  {takeLoading ? "Saving..." : "Confirm"}
+                </button>
               </div>
-            )}
-
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeCardSelector}
-                className="rounded-full border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmTakeRequestWithCard}
-                disabled={takeLoading || !selectedCardId}
-                className="rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 disabled:opacity-50"
-              >
-                {takeLoading ? "Saving..." : "Confirm"}
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
       </div>
     </div>
   );
