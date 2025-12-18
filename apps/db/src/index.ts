@@ -1,0 +1,2 @@
+export { prisma } from "./client"
+export * from "@prisma/client" // re-export Prisma types (e.g., Prisma.User)

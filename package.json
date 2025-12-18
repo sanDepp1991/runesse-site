@@ -1,0 +1,25 @@
+{
+  "name": "runesse-monorepo",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:site": "pnpm --filter @runesse/site dev",
+    "dev:web": "pnpm --filter @runesse/web dev",
+    "dev:admin": "pnpm --filter @runesse/admin dev -- --port 3002",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "format": "prettier -w ."
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3"
+  },
+  "dependencies": {
+    "@supabase/auth-helpers-nextjs": "^0.10.0",
+    "@supabase/supabase-js": "^2.81.1",
+    "dotenv": "^17.2.3"
+  }
+}

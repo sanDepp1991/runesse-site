@@ -1,0 +1,14 @@
+{
+  "total_matches_found": 36,
+  "files_changed_count": 8,
+  "files_changed": [
+    "README.md",
+    "app/(legal)/privacy/page.md",
+    "app/(legal)/terms/page.md",
+    "app/(site)/page.tsx",
+    "app/api/subscribe/route.ts",
+    "app/layout.tsx",
+    "components/ui.tsx",
+    "package.json"
+  ]
+}
