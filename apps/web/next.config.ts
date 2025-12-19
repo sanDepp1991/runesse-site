@@ -12,6 +12,11 @@ const nextConfig: NextConfig = {
    * It also silences the “workspace root inferred” warning.
    */
   outputFileTracingRoot: path.join(__dirname, "../../.."),
+
+  // Prevent Vercel build failure from cssnano ("Unexpected '(' found")
+  experimental: {
+    optimizeCss: false,
+  },
 };
 
 export default nextConfig;
