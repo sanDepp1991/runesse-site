@@ -43,13 +43,15 @@ export async function POST(req: Request) {
       });
 
       // 3) Log into ledger as an admin/system completion
-      await recordAdminMarkedCompleted(tx, {
-        requestId: targetId,
-        adminId,
-        referenceType: "REQUEST",
-        buyerId: null,
-        cardholderId: null,
-      });
+await recordAdminMarkedCompleted(tx, {
+  requestId: targetId,
+  adminId,
+  meta: {
+    referenceType: "REQUEST",
+    buyerId: null,
+    cardholderId: null,
+  },
+});
 
       return updatedRequest;
     });

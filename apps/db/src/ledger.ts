@@ -93,7 +93,7 @@ export async function recordLedgerEntry(
   }
 
   // ✅ Normalize meta: accept both `meta` and `metadata`
-const metaValue = meta ?? metadata ?? undefined;
+  const metaValue = meta ?? metadata ?? undefined;
 
   await tx.ledgerEntry.create({
     data: {
@@ -137,7 +137,13 @@ export async function recordCardholderAcceptedRequest(
     toStatus?: string | null;
   }
 ) {
-  const { requestId, cardholderId, matchedCardholderEmail, fromStatus, toStatus } = args;
+  const {
+    requestId,
+    cardholderId,
+    matchedCardholderEmail,
+    fromStatus,
+    toStatus,
+  } = args;
 
   await recordLedgerEntry(tx, {
     scope: LedgerScope.USER_TRANSACTION,
@@ -167,5 +173,47 @@ export async function recordCardholderAcceptedRequest(
       fromStatus: fromStatus ?? null,
       toStatus: toStatus ?? null,
     },
+  });
+}
+
+/**
+ * Convenience helper:
+ * Record that an admin marked a request as completed.
+ *
+ * This exists because the admin app imports `recordAdminMarkedCompleted`
+ * from `@runesse/db`.
+ *
+ * Usage:
+ *   await recordAdminMarkedCompleted(tx, { requestId, adminId, meta });
+ */
+export async function recordAdminMarkedCompleted(
+  tx: Prisma.TransactionClient,
+  args: {
+    requestId: string;
+    adminId?: string | null;
+    meta?: Prisma.InputJsonValue | null;
+  }
+) {
+  const { requestId, adminId, meta } = args;
+
+  await recordLedgerEntry(tx, {
+    scope: LedgerScope.USER_TRANSACTION,
+    eventType: LedgerEventType.ADMIN_MARKED_COMPLETED,
+
+    side: null,
+    amount: null,
+    currency: "INR",
+
+    accountKey: adminId ? `USER:${adminId}` : "PLATFORM:ADMIN_UNIDENTIFIED",
+
+    referenceType: "REQUEST",
+    referenceId: requestId,
+
+    buyerId: null,
+    cardholderId: null,
+    adminId: adminId ?? null,
+
+    description: "Admin marked request completed",
+    meta: (meta ?? { requestId, adminId: adminId ?? null }) as any,
   });
 }

@@ -1,4 +1,4 @@
-// apps/web/app/admin/ledger/page.tsx
+// apps/admin/app/admin/ledger/page.tsx
 
 import React from "react";
 import Link from "next/link";
@@ -99,13 +99,18 @@ function getLinkedRequestId(entry: any): string | null {
   return null;
 }
 
+type SearchParams = Record<string, string | string[] | undefined>;
+
 export default async function AdminLedgerPage({
   searchParams,
 }: {
-  searchParams?: { [key: string]: string | string[] | undefined };
+  // Next.js 16 app router generated types expect Promise-like searchParams in build output
+  searchParams?: Promise<SearchParams>;
 }) {
-  const rawRequestId = searchParams?.requestId;
-  const rawEventType = searchParams?.eventType;
+  const sp: SearchParams = (await searchParams) ?? {};
+
+  const rawRequestId = sp.requestId;
+  const rawEventType = sp.eventType;
 
   const requestFilter =
     typeof rawRequestId === "string" ? rawRequestId.trim() : "";
