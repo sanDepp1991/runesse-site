@@ -11,7 +11,7 @@ const nextConfig: NextConfig = {
    * when you are inside a monorepo on Windows.
    * It also silences the “workspace root inferred” warning.
    */
-  outputFileTracingRoot: path.join(__dirname, "../../.."),
+  outputFileTracingRoot: path.join(__dirname, "../.."),
 
   // Prevent Vercel build failure from cssnano ("Unexpected '(' found")
   experimental: {
