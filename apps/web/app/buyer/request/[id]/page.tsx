@@ -261,9 +261,7 @@ function ProofUploadSlot({
             <p className="text-[10px] text-red-300 truncate">{error}</p>
           )}
           {justUploaded && !error && (
-            <p className="text-[10px] text-emerald-300">
-              Upload successful.
-            </p>
+            <p className="text-[10px] text-emerald-300">Upload successful.</p>
           )}
         </div>
       )}
@@ -362,8 +360,7 @@ export default function BuyerRequestDetailPage() {
         <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 max-w-sm text-center">
           <p className="text-sm font-medium text-red-100">{error}</p>
           <p className="mt-1 text-xs text-red-200/80">
-            Try going back to the buyer dashboard and opening the request
-            again.
+            Try going back to the buyer dashboard and opening the request again.
           </p>
           <div className="mt-3">
             <Link
@@ -382,25 +379,25 @@ export default function BuyerRequestDetailPage() {
 
   const createdAt = request?.createdAt ? new Date(request.createdAt) : null;
   const matchedAt = request?.matchedAt ? new Date(request.matchedAt) : null;
-  const completedAt = request?.completedAt
-    ? new Date(request.completedAt)
-    : null;
+  const completedAt = request?.completedAt ? new Date(request.completedAt) : null;
 
   const buyerCheckoutUrl = getProofUrl(request, "buyer-checkout");
   const buyerProductUrl = getProofUrl(request, "buyer-product");
   const chInvoiceUrl = getProofUrl(request, "cardholder-invoice");
   const chCardProofUrl = getProofUrl(request, "cardholder-card-proof");
 
-  const buyerUploadsLocked = status === "COMPLETED" || status === "CANCELLED" || status === "REJECTED";
+  const buyerUploadsLocked =
+    status === "COMPLETED" || status === "CANCELLED" || status === "REJECTED";
   const isCancellable =
     status === "SUBMITTED" || status === "ADMIN_APPROVED" || status === "MATCHED";
 
   const pricing =
     typeof request.checkoutPrice === "number"
-      ? calculatePricing(request.checkoutPrice, {
+      ? calculatePricing({
+          checkoutPrice: request.checkoutPrice,
           offerPercent: request.offerPercent ?? 10,
           futureBenefitPercent: request.futureBenefitPercent ?? 0,
-          commissionPercent: 10,
+          runesseCommissionPercent: 10,
         })
       : null;
 
@@ -422,17 +419,17 @@ export default function BuyerRequestDetailPage() {
                   Buyer · Request
                 </p>
                 <div className="flex items-center gap-2">
-              {(status === "SUBMITTED" ||
-                status === "ADMIN_APPROVED" ||
-                status === "MATCHED") && (
-                <Link
-                  href={`/buyer/request/${id}/deposit`}
-                  className="inline-flex items-center rounded-full border border-emerald-500/50 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-50 hover:bg-emerald-500/20"
-                  title="Phase-1 manual: pay to Runesse current account and record your deposit"
-                >
-                  Pay now / record deposit
-                </Link>
-              )}
+                  {(status === "SUBMITTED" ||
+                    status === "ADMIN_APPROVED" ||
+                    status === "MATCHED") && (
+                    <Link
+                      href={`/buyer/request/${id}/deposit`}
+                      className="inline-flex items-center rounded-full border border-emerald-500/50 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-50 hover:bg-emerald-500/20"
+                      title="Phase-1 manual: pay to Runesse current account and record your deposit"
+                    >
+                      Pay now / record deposit
+                    </Link>
+                  )}
 
                   <h1 className="truncate text-sm font-semibold text-neutral-50">
                     {request.productName || "Untitled product"}
@@ -600,13 +597,11 @@ export default function BuyerRequestDetailPage() {
                   <div>
                     <dt className="text-neutral-200">You pay now</dt>
                     <dd className="font-semibold text-neutral-50">
-                      ₹{formatINR(pricing.buyerPayNow)}
+                      ₹{formatINR(pricing.suggestedBuyerDeposit)}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-neutral-200">
-                      Cardholder pays now
-                    </dt>
+                    <dt className="text-neutral-200">Cardholder pays now</dt>
                     <dd className="font-semibold text-neutral-50">
                       ₹{formatINR(pricing.cardholderPayNow)}
                     </dd>
@@ -618,9 +613,7 @@ export default function BuyerRequestDetailPage() {
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-neutral-200">
-                      Runesse commission
-                    </dt>
+                    <dt className="text-neutral-200">Runesse commission</dt>
                     <dd className="font-semibold text-amber-300">
                       ₹{formatINR(pricing.runesseCommission)}
                     </dd>
@@ -638,12 +631,12 @@ export default function BuyerRequestDetailPage() {
                     Suggested amount to deposit to Runesse
                   </p>
                   <p className="text-[13px] font-semibold text-neutral-50">
-                    ₹{formatINR(pricing.buyerDeposit)}
+                    ₹{formatINR(pricing.suggestedBuyerDeposit)}
                   </p>
                   <p className="mt-1 text-[10px] text-neutral-400">
                     This is just an illustration of how the flows will work
-                    once escrow is enabled. In Phase-1, payments happen
-                    outside Runesse.
+                    once escrow is enabled. In Phase-1, payments happen outside
+                    Runesse.
                   </p>
                 </div>
               </div>
@@ -708,8 +701,7 @@ export default function BuyerRequestDetailPage() {
                 Cardholder uploads
               </p>
               <p className="text-[11px] text-neutral-500">
-                These files are uploaded by the cardholder to prove
-                purchase.
+                These files are uploaded by the cardholder to prove purchase.
               </p>
 
               <div className="space-y-3">
@@ -808,16 +800,12 @@ export default function BuyerRequestDetailPage() {
                 How this works
               </p>
               <ol className="mt-2 list-decimal pl-4 space-y-1.5 text-neutral-300">
+                <li>Upload your checkout proof and (optionally) product page.</li>
                 <li>
-                  Upload your checkout proof and (optionally) product page.
+                  A cardholder uses their offer card and uploads invoice and card
+                  transaction proof.
                 </li>
-                <li>
-                  A cardholder uses their offer card and uploads invoice and
-                  card transaction proof.
-                </li>
-                <li>
-                  Admin verifies everything and marks the request completed.
-                </li>
+                <li>Admin verifies everything and marks the request completed.</li>
               </ol>
               <p className="mt-3 text-[10px] text-neutral-500">
                 In Phase-1, payments happen outside Runesse. We only help you

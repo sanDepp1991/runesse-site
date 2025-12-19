@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@runesse/db"; // 👈 same style as your list route
+import { NewRequestStatus } from "@runesse/db";
 
 export async function POST(req: Request) {
   try {
@@ -25,8 +26,8 @@ export async function POST(req: Request) {
       );
     }
 
-    if (existing.status !== "PENDING") {
-      return NextResponse.json(
+    if (existing.status !== NewRequestStatus.SUBMITTED) {
+return NextResponse.json(
         { ok: false, error: "Request is no longer available." },
         { status: 400 }
       );

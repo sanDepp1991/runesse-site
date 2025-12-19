@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   // Exchange the code for a session (magic link)
   if (code) {
     try {
-      const supabase = supabaseServerClient();
+      const supabase = supabaseServerClient;
       await supabase.auth.exchangeCodeForSession(code);
     } catch {
       // If exchange fails, still redirect to /auth (or next),

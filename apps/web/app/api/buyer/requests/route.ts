@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
           buyerEmail,
           productLink: productLink.trim(),
           productName: productName.trim(),
-          checkoutPrice: new Prisma.Decimal(priceNum),
+          checkoutPrice: priceNum,
           notes: typeof notes === "string" && notes.trim() ? notes.trim() : null,
 
           requestedIssuer: requestedIssuer.trim(),
@@ -119,7 +119,6 @@ export async function POST(req: NextRequest) {
               ? deliveryMobile.trim()
               : null,
 
-          status: RequestStatus.PENDING,
           offerPercent: null,
           futureBenefitPercent: null,
         },

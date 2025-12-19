@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function AuthGatewayPage() {
+function AuthGatewayInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -29,23 +29,26 @@ export default function AuthGatewayPage() {
 
     setLoading(true);
     try {
-      const res = await fetch(`/api/auth/exists?email=${encodeURIComponent(cleaned)}`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      });
+      const res = await fetch(
+        `/api/auth/exists?email=${encodeURIComponent(cleaned)}`,
+        {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        }
+      );
 
       const data = await res.json().catch(() => null);
 
-if (!res.ok || !data?.ok) {
-  if (data?.code === "MISSING_DB_URL") {
-    setStatus(
-      "Setup required: RUNESSE_DATABASE_URL is missing. Create apps/web/.env.local (and/or apps/db/.env) and restart pnpm dev:web."
-    );
-  } else {
-    setStatus("Could not check your email. Please try again.");
-  }
-  return;
-}
+      if (!res.ok || !data?.ok) {
+        if (data?.code === "MISSING_DB_URL") {
+          setStatus(
+            "Setup required: RUNESSE_DATABASE_URL is missing. Create apps/web/.env.local (and/or apps/db/.env) and restart pnpm dev:web."
+          );
+        } else {
+          setStatus("Could not check your email. Please try again.");
+        }
+        return;
+      }
 
       // Route based on existence
       if (data.exists) {
@@ -102,8 +105,22 @@ if (!res.ok || !data?.ok) {
           >
             {loading ? "Checking…" : "Continue"}
           </button>
-</form>
+        </form>
       </div>
     </main>
+  );
+}
+
+export default function AuthGatewayPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-black text-neutral-100 flex items-center justify-center px-4 py-10">
+          <div className="text-sm text-neutral-300">Loading…</div>
+        </main>
+      }
+    >
+      <AuthGatewayInner />
+    </Suspense>
   );
 }

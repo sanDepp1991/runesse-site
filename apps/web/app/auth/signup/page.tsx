@@ -1,11 +1,11 @@
 // apps/web/app/auth/signup/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 
-export default function SignUpPage() {
+function SignUpInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -150,5 +150,19 @@ export default function SignUpPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-black text-neutral-100 flex items-center justify-center px-4 py-10">
+          <div className="text-sm text-neutral-300">Loading…</div>
+        </main>
+      }
+    >
+      <SignUpInner />
+    </Suspense>
   );
 }

@@ -93,7 +93,7 @@ export async function recordLedgerEntry(
   }
 
   // ✅ Normalize meta: accept both `meta` and `metadata`
-  const metaValue = meta ?? metadata ?? null;
+const metaValue = meta ?? metadata ?? undefined;
 
   await tx.ledgerEntry.create({
     data: {

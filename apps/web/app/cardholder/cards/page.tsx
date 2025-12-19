@@ -35,7 +35,7 @@ async function getBearerToken(): Promise<string | null> {
 }
 
 export default function CardholderCardsPage() {
-  useRoleAccess("CARDHOLDER");
+  useRoleAccess();
 
   const [cards, setCards] = useState<SavedCard[]>([]);
   const [loading, setLoading] = useState(true);

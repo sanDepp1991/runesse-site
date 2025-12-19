@@ -1,10 +1,7 @@
-// apps/web/app/api/requests/complete/route.ts
+// apps/web/app/api/admin/requests/complete/route.ts
 
 import { NextResponse } from "next/server";
-import {
-  prisma,
-  recordAdminMarkedCompleted,
-} from "@runesse/db";
+import { prisma, recordLedgerEntry, LedgerScope } from "@runesse/db";
 
 export async function POST(req: Request) {
   try {
@@ -37,18 +34,22 @@ export async function POST(req: Request) {
       // 2) Update status to COMPLETED (if not already)
       const updatedRequest = await tx.request.update({
         where: { id: targetId },
-        data: {
-          status: "COMPLETED",
-        },
+        data: { status: "COMPLETED" },
       });
 
-      // 3) Log into ledger as an admin/system completion
-      await recordAdminMarkedCompleted(tx, {
-        requestId: targetId,
-        adminId,
+      // 3) Log into ledger (recordLedgerEntry expects (tx, args))
+      await recordLedgerEntry(tx, {
+        scope: LedgerScope.USER_TRANSACTION,
+        eventType: "ADMIN_MARKED_COMPLETED",
         referenceType: "REQUEST",
-        buyerId: null,
-        cardholderId: null,
+        referenceId: targetId,
+        adminId: adminId,
+        description: "Admin marked request as COMPLETED",
+        meta: {
+          requestId: targetId,
+          buyerId: null,
+          cardholderId: null,
+        },
       });
 
       return updatedRequest;

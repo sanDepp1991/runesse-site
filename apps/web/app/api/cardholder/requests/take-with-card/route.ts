@@ -37,8 +37,8 @@ export async function POST(req: NextRequest) {
 
       // Only allow when request is still PENDING and not yet assigned
       if (
-        request.status !== NewRequestStatus.PENDING ||
-        request.matchedCardholderEmail
+        request.status !== NewRequestStatus.SUBMITTED ||
+request.matchedCardholderEmail
       ) {
         // someone already took it / not pending
         throw new Error("REQUEST_NOT_AVAILABLE");

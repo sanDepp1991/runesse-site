@@ -99,13 +99,18 @@ function getLinkedRequestId(entry: any): string | null {
   return null;
 }
 
+type SearchParams = { [key: string]: string | string[] | undefined };
+
 export default async function AdminLedgerPage({
   searchParams,
 }: {
-  searchParams?: { [key: string]: string | string[] | undefined };
+  // Next.js 16 generated PageProps may type searchParams as a Promise
+  searchParams?: Promise<SearchParams>;
 }) {
-  const rawRequestId = searchParams?.requestId;
-  const rawEventType = searchParams?.eventType;
+  const sp: SearchParams = searchParams ? await searchParams : {};
+
+  const rawRequestId = sp.requestId;
+  const rawEventType = sp.eventType;
 
   const requestFilter =
     typeof rawRequestId === "string" ? rawRequestId.trim() : "";

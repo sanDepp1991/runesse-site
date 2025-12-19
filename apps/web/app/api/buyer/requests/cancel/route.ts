@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
       // Phase-1 rule (you can relax later):
       // Buyer can cancel only if request is still PENDING.
-      if (existing.status !== "PENDING") {
+      if (String(existing.status) !== "PENDING") {
         throw new Error("CANNOT_CANCEL_IN_CURRENT_STATUS");
       }
 

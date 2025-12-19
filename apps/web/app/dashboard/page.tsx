@@ -37,7 +37,8 @@ const DashboardPage: React.FC = () => {
 
   return (
     <main className="min-h-screen bg-black text-neutral-50 flex items-center justify-center px-4">
-      <div className="w-full max-w-3xl border border-neutral-800 rounded-2xl bg-neutral-900/70 px-6 py-6 md:px-8 md:py-8 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
+      {/* FIX: Removed invalid Tailwind-style bracket syntax from className */}
+      <div className="w-full max-w-3xl border border-neutral-800 rounded-2xl bg-neutral-900/70 px-6 py-6 md:px-8 md:py-8 shadow-hero">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-400">
@@ -65,8 +66,7 @@ const DashboardPage: React.FC = () => {
 
         <p className="mt-4 text-xs md:text-sm text-neutral-300 max-w-xl">
           You told us during onboarding that you&apos;re comfortable using
-          Runesse as both a{" "}
-          <span className="font-semibold">Buyer</span> and a{" "}
+          Runesse as both a <span className="font-semibold">Buyer</span> and a{" "}
           <span className="font-semibold">Cardholder</span>. Pick the mode you
           want to use right now.
         </p>
