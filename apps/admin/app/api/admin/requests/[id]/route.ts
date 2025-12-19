@@ -1,7 +1,7 @@
 // apps/web/app/api/admin/requests/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@runesse/db";
-import { LedgerScope, LedgerEventType } from "@prisma/client";
+import { LedgerScope, LedgerEventType } from "@runesse/db";
 import { recordLedgerEntry } from "@runesse/db/src/ledger";
 
 type RouteContext = {

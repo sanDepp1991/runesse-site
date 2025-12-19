@@ -1,8 +1,7 @@
 // apps/web/app/api/admin/requests/status/route.ts
 
 import { NextResponse } from "next/server";
-import { prisma } from "@runesse/db";
-import { LedgerScope, LedgerEventType, NewRequestStatus } from "@prisma/client";
+import { prisma, LedgerScope, LedgerEventType, RequestStatus } from "@runesse/db";
 import { recordLedgerEntry } from "@runesse/db/src/ledger";
 
 // TODO: replace with real admin identity once admin auth is wired
@@ -24,7 +23,7 @@ const ALLOWED_TARGET_STATUSES: AdminStatusInput[] = [
 ];
 
 // Simple state machine – what admin is allowed to do
-function canTransition(from: NewRequestStatus, to: AdminStatusInput): boolean {
+function canTransition(from: RequestStatus, to: AdminStatusInput): boolean {
   const f = from.toUpperCase();
   const t = to.toUpperCase();
 
@@ -92,7 +91,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Request not found" }, { status: 404 });
     }
 
-    const currentStatus = existing.status as NewRequestStatus;
+    const currentStatus = existing.status as RequestStatus;
 
     if ((currentStatus || "").toUpperCase() === upper) {
       return NextResponse.json({ ok: true, request: existing });
