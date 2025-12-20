@@ -3,7 +3,7 @@
 
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "../../../lib/supabaseClient";
+import { supabase } from "../../lib/supabaseClient";
 
 function SignInInner() {
   const router = useRouter();
@@ -22,6 +22,32 @@ function SignInInner() {
   const [sent, setSent] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const init = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!mounted) return;
+
+      if (data.session) {
+        window.location.href = "/auth/continue";
+      }
+    };
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        window.location.href = "/auth/continue";
+      }
+    });
+
+    void init();
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     if (prefillEmail && prefillEmail !== email) setEmail(prefillEmail);
