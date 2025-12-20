@@ -28,13 +28,14 @@ export async function POST() {
     //  - In production (https://app.runesse.com) => secure true.
     const isProduction = process.env.NODE_ENV === "production";
 
-    res.cookies.set(ADMIN_DEVICE_COOKIE, deviceId, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 365, // 1 year
-    });
+res.cookies.set(ADMIN_DEVICE_COOKIE, deviceId, {
+  httpOnly: true,
+  secure: isProduction,
+  sameSite: "lax",
+  path: "/",
+  domain: ".runesse.com", // ⭐ THIS IS THE FIX
+  maxAge: 60 * 60 * 24 * 365,
+});
 
     return res;
   } catch (err) {
