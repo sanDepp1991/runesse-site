@@ -1,11 +1,11 @@
 // apps/web/app/auth/callback/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
 
-export default function AuthCallbackPage() {
+function CallbackInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [msg, setMsg] = useState("Signing you in…");
@@ -29,11 +29,12 @@ export default function AuthCallbackPage() {
         }
 
         // 2) Implicit hash flow: #access_token=...
-        // supabase-js v2 supports getSessionFromUrl({ storeSession: true })
         const authAny = supabase.auth as any;
         if (typeof authAny.getSessionFromUrl === "function") {
           setMsg("Finalizing sign-in…");
-          const { data, error } = await authAny.getSessionFromUrl({ storeSession: true });
+          const { data, error } = await authAny.getSessionFromUrl({
+            storeSession: true,
+          });
           if (error) {
             router.replace(`/auth?error=${encodeURIComponent(error.message)}`);
             return;
@@ -44,14 +45,16 @@ export default function AuthCallbackPage() {
           }
         }
 
-        // 3) Fallback: if session already exists
+        // 3) Fallback: session already exists
         const { data } = await supabase.auth.getSession();
         if (data.session) {
           router.replace(target);
           return;
         }
 
-        router.replace(`/auth?error=${encodeURIComponent("Session not found. Please try again.")}`);
+        router.replace(
+          `/auth?error=${encodeURIComponent("Session not found. Please try again.")}`
+        );
       } catch (e: any) {
         router.replace(`/auth?error=${encodeURIComponent(e?.message || "Auth failed")}`);
       }
@@ -61,8 +64,22 @@ export default function AuthCallbackPage() {
   }, [router, searchParams]);
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-black text-white">
-      <p>{msg}</p>
+    <main className="min-h-screen flex items-center justify-center bg-black text-white px-6">
+      <p className="text-sm text-neutral-300">{msg}</p>
     </main>
+  );
+}
+
+export default function AuthCallbackPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center bg-black text-white px-6">
+          <p className="text-sm text-neutral-300">Loading…</p>
+        </main>
+      }
+    >
+      <CallbackInner />
+    </Suspense>
   );
 }
