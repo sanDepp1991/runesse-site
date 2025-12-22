@@ -1,36 +1,22 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 import { useRoleAccess } from "../../../lib/roleAccess";
 
 type SavedCard = {
   id: string;
-  createdAt: string;
-  updatedAt: string;
-  cardholderEmail: string;
   bin: string;
   last4: string;
   issuer: string | null;
-  brand: string | null;
   network: string | null;
+  brand: string | null;
   country: string | null;
   label: string | null;
-  isActive: boolean;
 };
 
-type ApiResponse =
-  | { ok: true; cards: SavedCard[] }
-  | { ok: true; card: SavedCard }
-  | { ok: false; error: string };
-
-function cx(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
-
 async function getBearerToken(): Promise<string | null> {
-  const { data, error } = await supabase.auth.getSession();
-  if (error) return null;
+  const { data } = await supabase.auth.getSession();
   return data.session?.access_token ?? null;
 }
 
@@ -46,13 +32,14 @@ export default function CardholderCardsPage() {
   const [last4, setLast4] = useState("");
   const [issuer, setIssuer] = useState("");
   const [network, setNetwork] = useState("");
+  const [brand, setBrand] = useState("");
+  const [country, setCountry] = useState("");
   const [label, setLabel] = useState("");
 
-  const canSubmit = useMemo(() => {
-    const b = bin.trim();
-    const l = last4.trim();
-    return /^\d{6}$/.test(b) && /^\d{4}$/.test(l);
-  }, [bin, last4]);
+  const [binHint, setBinHint] = useState<string | null>(null);
+  const lastLookedUpBin = useRef<string>("");
+
+  /* ---------------- Load cards ---------------- */
 
   const loadCards = useCallback(async () => {
     setLoading(true);
@@ -60,30 +47,16 @@ export default function CardholderCardsPage() {
 
     try {
       const token = await getBearerToken();
-      if (!token) {
-        setCards([]);
-        setError("Not signed in. Please sign in again.");
-        setLoading(false);
-        return;
-      }
+      if (!token) return;
 
-      const r = await fetch("/api/cardholder/cards", {
-        method: "GET",
-        cache: "no-store",
+      const res = await fetch("/api/cardholder/cards", {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const data: ApiResponse = await r.json();
-      if (!r.ok || ("ok" in data && data.ok === false)) {
-        setError((data as any)?.error || `Failed to load cards (HTTP ${r.status}).`);
-        setCards([]);
-      } else {
-        const list = (data as any).cards as SavedCard[];
-        setCards(Array.isArray(list) ? list : []);
-      }
-    } catch (e: any) {
-      setError(e?.message || "Failed to load cards.");
-      setCards([]);
+      const data = await res.json();
+      setCards(data.cards || []);
+    } catch {
+      setError("Failed to load cards");
     } finally {
       setLoading(false);
     }
@@ -92,6 +65,56 @@ export default function CardholderCardsPage() {
   useEffect(() => {
     loadCards();
   }, [loadCards]);
+
+  /* ---------------- BIN lookup ---------------- */
+
+  const lookupBin = async (sixDigitBin: string) => {
+    setBinHint("Fetching card details…");
+
+    try {
+      const res = await fetch("/api/bin-lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bin: sixDigitBin }),
+      });
+
+      const data = await res.json();
+
+      if (data?.ok) {
+        if (!issuer && data.issuer) setIssuer(data.issuer);
+        if (!network && data.network) setNetwork(data.network);
+        if (data.brand) setBrand(data.brand);
+        if (data.country) setCountry(data.country);
+        setBinHint("Card details detected");
+      } else {
+        setBinHint(null);
+      }
+    } catch {
+      setBinHint(null);
+    } finally {
+      setTimeout(() => setBinHint(null), 2500);
+    }
+  };
+
+  const handleBinChange = (value: string) => {
+    const digits = value.replace(/\D/g, "").slice(0, 6);
+    setBin(digits);
+
+    if (digits.length < 6) {
+      lastLookedUpBin.current = "";
+      setBinHint(null);
+      return;
+    }
+
+    if (digits.length === 6 && lastLookedUpBin.current !== digits) {
+      lastLookedUpBin.current = digits;
+      lookupBin(digits);
+    }
+  };
+
+  /* ---------------- Save card ---------------- */
+
+  const canSubmit = /^\d{6}$/.test(bin) && /^\d{4}$/.test(last4);
 
   async function onAddCard(e: React.FormEvent) {
     e.preventDefault();
@@ -102,31 +125,27 @@ export default function CardholderCardsPage() {
 
     try {
       const token = await getBearerToken();
-      if (!token) {
-        setError("Not signed in. Please sign in again.");
-        return;
-      }
+      if (!token) return;
 
-      const payload = {
-        bin: bin.trim(),
-        last4: last4.trim(),
-        issuer: issuer.trim() || null,
-        network: network.trim() || null,
-        label: label.trim() || null,
-      };
-
-      const r = await fetch("/api/cardholder/cards", {
+      const res = await fetch("/api/cardholder/cards", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          bin,
+          last4,
+          issuer: issuer || null,
+          network: network || null,
+          brand: brand || null,
+          country: country || null,
+          label: label || null,
+        }),
       });
 
-      const data: ApiResponse = await r.json();
-      if (!r.ok || ("ok" in data && data.ok === false)) {
-        setError((data as any)?.error || `Failed to save card (HTTP ${r.status}).`);
+      if (!res.ok) {
+        setError("Failed to save card");
         return;
       }
 
@@ -134,167 +153,114 @@ export default function CardholderCardsPage() {
       setLast4("");
       setIssuer("");
       setNetwork("");
+      setBrand("");
+      setCountry("");
       setLabel("");
+      lastLookedUpBin.current = "";
+
       await loadCards();
-    } catch (e: any) {
-      setError(e?.message || "Failed to save card.");
+    } catch {
+      setError("Failed to save card");
     } finally {
       setBusy(false);
     }
   }
 
-  const panel =
-    "rounded-2xl border border-neutral-800 bg-neutral-950/60 backdrop-blur px-6 py-5 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]";
-
-  const labelCls = "text-sm font-medium text-neutral-200";
-  const inputCls =
-    "mt-1 w-full rounded-xl border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-neutral-100 placeholder:text-neutral-500 outline-none focus:border-neutral-600 focus:ring-2 focus:ring-neutral-700/40";
-
-  const primaryBtn = cx(
-    "rounded-xl px-4 py-2 text-sm font-medium",
-    canSubmit && !busy
-      ? "bg-neutral-100 text-neutral-900 hover:bg-neutral-200"
-      : "bg-neutral-800 text-neutral-500 cursor-not-allowed"
-  );
-
-  const secondaryBtn =
-    "rounded-xl border border-neutral-800 bg-neutral-900/40 px-4 py-2 text-sm font-medium text-neutral-100 hover:bg-neutral-900";
+  /* ---------------- UI ---------------- */
 
   return (
-    <div className="mx-auto max-w-4xl px-5 py-8">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-neutral-100">
-          Saved Cards
-        </h1>
-        <p className="mt-1 text-sm text-neutral-400">
-          Add the cards you want to receive matching requests for. BIN (6 digits) + last 4 are required.
-        </p>
-      </div>
+    <div className="max-w-3xl mx-auto px-5 py-8">
+      <h1 className="text-2xl font-semibold text-neutral-100 mb-4">
+        Saved Cards
+      </h1>
 
-      {/* Add Card */}
-      <div className={panel}>
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-medium text-neutral-100">Add a card</h2>
-          <div className="text-xs text-neutral-500">
-            {busy ? "Saving…" : "Secure • Verified"}
-          </div>
+      <form onSubmit={onAddCard} className="space-y-4">
+        <div>
+          <label className="text-sm text-neutral-300">BIN (6 digits)</label>
+          <input
+            value={bin}
+            onChange={(e) => handleBinChange(e.target.value)}
+            inputMode="numeric"
+            className="w-full mt-1 rounded-xl bg-neutral-900 border border-neutral-800 px-3 py-2 text-neutral-100"
+            placeholder="e.g. 411111"
+          />
+          {binHint && (
+            <div className="mt-1 text-xs text-neutral-400">{binHint}</div>
+          )}
         </div>
 
-        <form className="mt-5 grid gap-4" onSubmit={onAddCard}>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div>
-              <label className={labelCls}>BIN (6 digits) *</label>
-              <input
-                value={bin}
-                onChange={(e) => setBin(e.target.value)}
-                inputMode="numeric"
-                placeholder="e.g., 411111"
-                className={inputCls}
-              />
-              <div className="mt-1 text-xs text-neutral-500">First 6 digits of your card</div>
-            </div>
-
-            <div>
-              <label className={labelCls}>Last 4 digits *</label>
-              <input
-                value={last4}
-                onChange={(e) => setLast4(e.target.value)}
-                inputMode="numeric"
-                placeholder="e.g., 1111"
-                className={inputCls}
-              />
-              <div className="mt-1 text-xs text-neutral-500">Last 4 digits shown on your card</div>
-            </div>
-
-            <div>
-              <label className={labelCls}>Issuer (optional)</label>
-              <input
-                value={issuer}
-                onChange={(e) => setIssuer(e.target.value)}
-                placeholder="e.g., HDFC"
-                className={inputCls}
-              />
-            </div>
-
-            <div>
-              <label className={labelCls}>Network (optional)</label>
-              <input
-                value={network}
-                onChange={(e) => setNetwork(e.target.value)}
-                placeholder="e.g., VISA"
-                className={inputCls}
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className={labelCls}>Label (optional)</label>
-              <input
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="e.g., My Primary Card"
-                className={inputCls}
-              />
-            </div>
-          </div>
-
-          {error ? (
-            <div className="rounded-xl border border-red-900/40 bg-red-950/40 px-4 py-3 text-sm text-red-200">
-              {error}
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap items-center gap-3 pt-1">
-            <button type="submit" disabled={!canSubmit || busy} className={primaryBtn}>
-              {busy ? "Saving..." : "Save card"}
-            </button>
-
-            <button type="button" onClick={loadCards} className={secondaryBtn}>
-              Refresh
-            </button>
-
-            <div className="ml-auto text-xs text-neutral-500">
-              Tip: Save at least one card to receive requests in your inbox.
-            </div>
-          </div>
-        </form>
-      </div>
-
-      {/* Cards List */}
-      <div className={cx(panel, "mt-6")}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-medium text-neutral-100">Your cards</h2>
-          <span className="text-sm text-neutral-400">
-            {loading ? "Loading..." : `${cards.length} card(s)`}
-          </span>
+        <div>
+          <label className="text-sm text-neutral-300">Last 4 digits</label>
+          <input
+            value={last4}
+            onChange={(e) =>
+              setLast4(e.target.value.replace(/\D/g, "").slice(0, 4))
+            }
+            inputMode="numeric"
+            className="w-full mt-1 rounded-xl bg-neutral-900 border border-neutral-800 px-3 py-2 text-neutral-100"
+            placeholder="e.g. 1234"
+          />
         </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <input
+            placeholder="Issuer"
+            value={issuer}
+            onChange={(e) => setIssuer(e.target.value)}
+            className="rounded-xl bg-neutral-900 border border-neutral-800 px-3 py-2 text-neutral-100"
+          />
+          <input
+            placeholder="Network"
+            value={network}
+            onChange={(e) => setNetwork(e.target.value)}
+            className="rounded-xl bg-neutral-900 border border-neutral-800 px-3 py-2 text-neutral-100"
+          />
+        </div>
+
+        <input
+          placeholder="Label (optional)"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          className="w-full rounded-xl bg-neutral-900 border border-neutral-800 px-3 py-2 text-neutral-100"
+        />
+
+        {error && (
+          <div className="text-sm text-red-400 border border-red-800 rounded-xl px-3 py-2">
+            {error}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={!canSubmit || busy}
+          className="rounded-xl bg-neutral-100 text-neutral-900 px-4 py-2 disabled:opacity-50"
+        >
+          {busy ? "Saving…" : "Save card"}
+        </button>
+      </form>
+
+      <div className="mt-8">
+        <h2 className="text-lg text-neutral-200 mb-3">Your cards</h2>
         {loading ? (
-          <div className="mt-4 text-sm text-neutral-400">Loading cards…</div>
+          <div className="text-neutral-400">Loading…</div>
         ) : cards.length === 0 ? (
-          <div className="mt-4 text-sm text-neutral-400">
-            No cards saved yet. Add your first card above.
-          </div>
+          <div className="text-neutral-400">No cards saved yet.</div>
         ) : (
-          <div className="mt-4 grid gap-3">
+          <div className="space-y-3">
             {cards.map((c) => (
               <div
                 key={c.id}
-                className="rounded-xl border border-neutral-800 bg-neutral-900/40 px-4 py-3"
+                className="border border-neutral-800 rounded-xl px-4 py-3 bg-neutral-900"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="font-medium text-neutral-100">
-                    {c.issuer || "Issuer"}{" "}
-                    <span className="text-neutral-400">• {c.network || "Network"}</span>
-                  </div>
-                  <div className="text-sm text-neutral-300">
-                    BIN {c.bin} • **** {c.last4}
-                  </div>
+                <div className="text-neutral-100 font-medium">
+                  {c.issuer || "Issuer"} • {c.network || "Network"}
                 </div>
-
-                {c.label ? (
-                  <div className="mt-1 text-sm text-neutral-400">{c.label}</div>
-                ) : null}
+                <div className="text-sm text-neutral-400">
+                  BIN {c.bin} • **** {c.last4}
+                </div>
+                {c.label && (
+                  <div className="text-sm text-neutral-500">{c.label}</div>
+                )}
               </div>
             ))}
           </div>
