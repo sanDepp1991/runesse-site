@@ -4,9 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "next build --webpack",
+    "build": "pnpm --filter @runesse/db exec prisma generate && next build --webpack",
     "start": "next start",
-    "lint": "eslint",
     "postinstall": "pnpm --filter @runesse/db exec prisma generate"
   },
   "dependencies": {
