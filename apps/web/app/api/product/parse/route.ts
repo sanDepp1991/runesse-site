@@ -14,47 +14,38 @@ type Parsed = {
 
 const ALLOWED_DOMAINS = ["amazon.in", "amzn.in", "flipkart.com", "myntra.com"];
 
-function isAllowedHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  return ALLOWED_DOMAINS.some((d) => h === d || h.endsWith(`.${d}`));
+function isAllowedHost(hostname: string) {
+  const host = hostname.toLowerCase();
+  return ALLOWED_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
 }
 
-function uniqStrings(items: string[]): string[] {
+function stripHtml(html: string) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<\/?[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function uniqStrings(items: string[]) {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const raw of items) {
-    const v = (raw || "").replace(/\s+/g, " ").trim();
+  for (const it of items) {
+    const v = (it || "").trim();
     if (!v) continue;
-    const key = v.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (seen.has(v)) continue;
+    seen.add(v);
     out.push(v);
   }
   return out;
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function extractOffers(text: string): string[] {
   const offers: string[] = [];
-
-  // Most common phrasing across Amazon/Flipkart/Myntra
   const patterns = [
-    /(Bank Offer[^\n\.]{0,220}(?:\.|\n))/gi,
-    /(No Cost EMI[^\n\.]{0,220}(?:\.|\n))/gi,
-    /(Cashback[^\n\.]{0,220}(?:\.|\n))/gi,
-    /(Instant discount[^\n\.]{0,220}(?:\.|\n))/gi,
+    /(?:bank offer|bank offers|instant discount|discount)\s*[:\-]?\s*([^.\n]{10,120})/gi,
+    /(?:HDFC|ICICI|SBI|AXIS|KOTAK|IDFC|BOB|PNB|IOB|CANARA|UNION)\s*(?:bank)?\s*(?:credit|debit)?\s*card[^.\n]{0,60}/gi,
   ];
 
   for (const re of patterns) {
@@ -69,193 +60,154 @@ function extractOffers(text: string): string[] {
   return uniqStrings(offers).slice(0, 10);
 }
 
-function parseAmazon(html: string): { title: string | null; price: number | null } {
+function parseAmazon(
+  html: string
+): { title: string | null; price: number | null } {
   const title =
-    html.match(/<span[^>]*id="productTitle"[^>]*>([\s\S]*?)<\/span>/i)?.[1]
-      ?.replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim() ||
-    html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/i)?.[1]?.trim() ||
-    null;
-
-  // Amazon price can appear in multiple forms.
-  const candidates: string[] = [];
-  const m1 = html.match(/"priceToPay"[\s\S]{0,200}?"value"\s*:\s*"?([0-9,]+(?:\.[0-9]{1,2})?)"?/i);
-  if (m1?.[1]) candidates.push(m1[1]);
-
-  const m2 = html.match(/<span[^>]*class="a-price-whole"[^>]*>([0-9,]+)<\/span>/i);
-  if (m2?.[1]) candidates.push(m2[1]);
-
-  const m3 = html.match(/<meta\s+property="product:price:amount"\s+content="([0-9,.]+)"/i);
-  if (m3?.[1]) candidates.push(m3[1]);
-
-  const price = (() => {
-    for (const c of candidates) {
-      const n = Number(String(c).replace(/,/g, ""));
-      if (!Number.isNaN(n) && n > 0) return n;
-    }
-    return null;
-  })();
-
-  return { title, price };
-}
-
-function parseFlipkart(html: string): { title: string | null; price: number | null } {
-  const title =
-    html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/i)?.[1]?.trim() ||
-    html.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, " ").trim() ||
-    null;
-
-  // Common Flipkart price patterns
-  const candidates: string[] = [];
-  const m1 = html.match(/"sellingPrice"\s*:\s*\{[^}]*"amount"\s*:\s*([0-9]+)/i);
-  if (m1?.[1]) candidates.push(m1[1]);
-
-  const m2 = html.match(/<div[^>]*class="_30jeq3"[^>]*>\s*₹\s*([0-9,]+)/i);
-  if (m2?.[1]) candidates.push(m2[1]);
-
-  const m3 = html.match(/"price"\s*:\s*([0-9]{2,})/i);
-  if (m3?.[1]) candidates.push(m3[1]);
-
-  const price = (() => {
-    for (const c of candidates) {
-      const n = Number(String(c).replace(/,/g, ""));
-      if (!Number.isNaN(n) && n > 0) return n;
-    }
-    return null;
-  })();
-
-  return { title, price };
-}
-
-function parseMyntra(html: string): { title: string | null; price: number | null } {
-  // Myntra is Next.js; try __NEXT_DATA__ first.
-  const nextData = html.match(
-    /<script[^>]*id="__NEXT_DATA__"[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/i
-  )?.[1];
-
-  if (nextData) {
-    try {
-      const json = JSON.parse(nextData);
-      const pdp = json?.props?.pageProps?.pdpData || json?.props?.pageProps?.pdp || null;
-      const title =
-        pdp?.name ||
-        pdp?.product?.name ||
-        json?.props?.pageProps?.seoMeta?.title ||
-        null;
-
-      const priceCandidates: any[] = [
-        pdp?.price?.discounted,
-        pdp?.price?.mrp,
-        pdp?.product?.price,
-        pdp?.product?.mrp,
-        pdp?.mrp,
-        pdp?.price,
-      ];
-      let price: number | null = null;
-      for (const c of priceCandidates) {
-        const n = Number(String(c ?? "").replace(/,/g, ""));
-        if (!Number.isNaN(n) && n > 0) {
-          price = n;
-          break;
-        }
-      }
-
-      return {
-        title: typeof title === "string" ? title.trim() : null,
-        price,
-      };
-    } catch {
-      // fall through
-    }
-  }
-
-  // Fallback: JSON-LD Product schema
-  const ldJson = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/i)?.[1];
-  if (ldJson) {
-    const pickProductFromJsonLd = (obj: any): any | null => {
-      if (!obj) return null;
-
-      // Common case: array of nodes
-      if (Array.isArray(obj)) {
-        for (const node of obj) {
-          const t = node?.["@type"];
-          if (t === "Product" || (Array.isArray(t) && t.includes("Product"))) return node;
-        }
-        return null;
-      }
-
-      // Graph case
-      const graph = obj?.["@graph"];
-      if (Array.isArray(graph)) {
-        for (const node of graph) {
-          const t = node?.["@type"];
-          if (t === "Product" || (Array.isArray(t) && t.includes("Product"))) return node;
-        }
-      }
-
-      // Direct object
-      const t = obj?.["@type"];
-      if (t === "Product" || (Array.isArray(t) && t.includes("Product"))) return obj;
-
-      return null;
-    };
-
-    try {
-      const data = JSON.parse(ldJson);
-      const product = pickProductFromJsonLd(data);
-      if (product) {
-        const title = product?.name || null;
-        const priceRaw =
-          product?.offers?.price ?? product?.offers?.lowPrice ?? product?.offers?.highPrice ?? null;
-        const n = Number(String(priceRaw ?? "").replace(/,/g, ""));
-        return {
-          title: typeof title === "string" ? title.trim() : null,
-          price: !Number.isNaN(n) && n > 0 ? n : null,
-        };
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  // Last resort
-  const title =
-    html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/i)?.[1]?.trim() ||
+    html.match(/id="productTitle"[^>]*>\s*([^<]+)\s*</i)?.[1]?.trim() ||
     html.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, " ").trim() ||
     null;
 
   const m = html.match(/"price"\s*:\s*"?([0-9,]+(?:\.[0-9]{1,2})?)"?/i);
   const price = m?.[1] ? Number(m[1].replace(/,/g, "")) : null;
-  return { title, price: price && price > 0 && !Number.isNaN(price) ? price : null };
+  return {
+    title,
+    price: price && price > 0 && !Number.isNaN(price) ? price : null,
+  };
+}
+
+function parseFlipkart(
+  html: string
+): { title: string | null; price: number | null } {
+  const title =
+    html.match(/<span[^>]*class="B_NuCI"[^>]*>\s*([^<]+)\s*<\/span>/i)?.[1]?.trim() ||
+    html.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, " ").trim() ||
+    null;
+
+  const m =
+    html.match(/"price"\s*:\s*"?([0-9,]+(?:\.[0-9]{1,2})?)"?/i) ||
+    html.match(/₹\s*([0-9,]+(?:\.[0-9]{1,2})?)/i);
+
+  const price = m?.[1] ? Number(m[1].replace(/,/g, "")) : null;
+  return {
+    title,
+    price: price && price > 0 && !Number.isNaN(price) ? price : null,
+  };
+}
+
+function parseMyntra(
+  html: string
+): { title: string | null; price: number | null } {
+  const title =
+    html.match(/<h1[^>]*class="pdp-title"[^>]*>\s*([^<]+)\s*<\/h1>/i)?.[1]?.trim() ||
+    html.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, " ").trim() ||
+    null;
+
+  const m =
+    html.match(/"price"\s*:\s*"?([0-9,]+(?:\.[0-9]{1,2})?)"?/i) ||
+    html.match(/₹\s*([0-9,]+(?:\.[0-9]{1,2})?)/i);
+
+  const price = m?.[1] ? Number(m[1].replace(/,/g, "")) : null;
+  return {
+    title,
+    price: price && price > 0 && !Number.isNaN(price) ? price : null,
+  };
 }
 
 async function fetchHtml(url: string): Promise<string> {
-  const res = await fetch(url, {
-    method: "GET",
-    redirect: "follow",
-    headers: {
-      // Many e-comm pages return limited HTML without a UA
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      "Accept-Language": "en-IN,en;q=0.9",
-      "Cache-Control": "no-cache",
-      Pragma: "no-cache",
-    },
-    cache: "no-store",
-  });
+  // NOTE (Phase-1 pragmatism): Marketplaces frequently block server-side fetches (503/529/403).
+  // For "today" reliability, we:
+  // 1) try direct fetch with browser-like headers + timeout
+  // 2) if blocked/throttled, try a temporary read-proxy fallback (r.jina.ai)
+  // 3) on failure, throw a friendly message (NO raw HTML) so UI can fall back to manual entry.
 
-  // Some platforms reply 403 for bot protection.
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(
-      `Unable to fetch product page (HTTP ${res.status}). ${body?.slice(0, 120) || ""}`
-    );
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  const headers: Record<string, string> = {
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    Accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-IN,en;q=0.9",
+    "Cache-Control": "no-cache",
+    Pragma: "no-cache",
+  };
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      headers,
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    const text = await res.text().catch(() => "");
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+
+    const looksLikeBlocked =
+      [403, 429, 503, 529].includes(res.status) ||
+      /captcha|robot|unusual traffic|access denied|to discuss automated access/i.test(text);
+
+    // If the direct fetch worked and returned HTML, use it.
+    if (res.ok && ct.includes("text/html") && text.length > 500 && !looksLikeBlocked) {
+      return text;
+    }
+
+    // If blocked/throttled, try the temporary read-proxy fallback.
+    if (looksLikeBlocked) {
+      const proxied =
+        url.startsWith("https://")
+          ? `https://r.jina.ai/https://${url.slice("https://".length)}`
+          : url.startsWith("http://")
+            ? `https://r.jina.ai/http://${url.slice("http://".length)}`
+            : `https://r.jina.ai/${url}`;
+
+      const res2 = await fetch(proxied, {
+        method: "GET",
+        headers: {
+          ...headers,
+          Accept: "text/plain,*/*",
+        },
+        cache: "no-store",
+        signal: controller.signal,
+      });
+
+      const text2 = await res2.text().catch(() => "");
+      if (res2.ok && text2.length > 500) {
+        return text2;
+      }
+
+      throw new Error(
+        `Marketplace temporarily blocked/overloaded (HTTP ${res.status}). Please enter details manually.`
+      );
+    }
+
+    // Other non-OK responses: return a clean message (no HTML dump)
+    if (!res.ok) {
+      throw new Error(
+        `Unable to fetch product page right now (HTTP ${res.status}). Please enter details manually.`
+      );
+    }
+
+    // Edge case: OK but not usable HTML
+    if (!ct.includes("text/html") || text.length < 200) {
+      throw new Error(
+        "Unable to fetch product details from this link right now. Please enter details manually."
+      );
+    }
+
+    return text;
+  } catch (e: any) {
+    const msg =
+      e?.name === "AbortError"
+        ? "Marketplace request timed out. Please enter details manually."
+        : e?.message || "Unable to fetch product page. Please enter details manually.";
+    throw new Error(msg);
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return await res.text();
 }
 
 async function parseUrl(targetUrl: string): Promise<Parsed> {
@@ -311,10 +263,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ...parsed });
   } catch (e: any) {
     console.error("product/parse POST error:", e);
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Unable to parse product" },
-      { status: 500 }
-    );
+    const message = e?.message || "Unable to parse product";
+
+    // Marketplace fetch failures are expected (503/529/403 etc).
+    // Return 200 so the UI can gracefully fall back to manual entry.
+    if (
+      /Marketplace temporarily blocked|Unable to fetch product page right now|Please enter details manually|request timed out/i.test(
+        message
+      )
+    ) {
+      return NextResponse.json({ ok: false, error: message }, { status: 200 });
+    }
+
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
 
@@ -329,9 +290,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, ...parsed });
   } catch (e: any) {
     console.error("product/parse GET error:", e);
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Unable to parse product" },
-      { status: 500 }
-    );
+    const message = e?.message || "Unable to parse product";
+
+    // Marketplace fetch failures are expected (503/529/403 etc).
+    // Return 200 so the UI can gracefully fall back to manual entry.
+    if (
+      /Marketplace temporarily blocked|Unable to fetch product page right now|Please enter details manually|request timed out/i.test(
+        message
+      )
+    ) {
+      return NextResponse.json({ ok: false, error: message }, { status: 200 });
+    }
+
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
